@@ -13,12 +13,6 @@
 This is a fork of [uzh-rpg/flightmare](https://github.com/uzh-rpg/flightmare) focused on:
 
 1. **Faithful replication** of the IROS 2021 autonomous drone racing baseline (Song et al.)
-2. **Observation-space ablation study** — characterizing which state components are necessary, redundant, or load-bearing for agile gate racing
-
-### Research Question
-
-> *"What is the minimal sufficient observation space for an RL drone racing policy to reliably traverse a sequence of gates, and how does each observation component contribute to learning efficiency, peak performance, and behavioral stability?"*
-
 ---
 
 ## Project Structure
@@ -143,7 +137,7 @@ r(t) = progress + gate_bonus + survival - control_penalty - body_rate_penalty
 - [x] VecNormalize z-score observation normalization
 - [x] Distributed initialization (hover → trajectory replay)
 
-### 🔲 TODO (Priorities 6-11) — Help Wanted!
+### 🔲 TODO (Priorities 6-11)
 
 - [ ] **P6:** Distance-dependent terminal penalty for gate collisions
 - [ ] **P7:** Network architecture tuning (Tanh output, `[256,256]`)
@@ -163,21 +157,6 @@ See [`iros21_replication_gaps.md`](iros21_replication_gaps.md) for detailed desc
 | `-Ofast` breaks `std::isfinite(NaN)` | Physics never advances | Volatile-based NaN checks in `command.cpp` |
 | Pybind11 `Ref<MatrixRowMajor>` row expression creates temporary | Obs writes discarded | Exposed `getObs()` in pybind, called after `step()` |
 | `EvalCallback` hangs on C++ VecEnv | Training stalls | Custom `TrainingRewardCallback` |
-
----
-
-## Ablation Study Design
-
-| ID | Condition | Obs Dims | Change |
-|----|-----------|----------|--------|
-| A | Full Baseline | 26 | Control |
-| B | No Orientation | 17 | Remove R_WB(9) |
-| C | No Angular Velocity | 23 | Remove ω_B(3) |
-| D | No Gate Observation | 18 | Remove gate obs(8) |
-| E | Gate + Velocity Only | 6 | lin_vel(3) + gate1(3) |
-| I | IMU-Realistic | 9 | lin_vel + ang_vel + gate1 |
-
-Each condition: 25M steps × 5 seeds. See `run_ablation.py`.
 
 ---
 

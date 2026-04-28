@@ -1,8 +1,3 @@
-# Contributing to Flightmare Drone Racing
-
-Thanks for wanting to contribute! This guide will help you get set up and start working on the project.
-
----
 
 ## Development Setup
 
