@@ -1,0 +1,68 @@
+# ─────────────────────────────────────────────────────────────────
+# IROS 2021 Gate Racing Configuration — Split-S Track
+# Source: Original IROS 2021 paper track files (tracks/SplitS.yaml)
+# ─────────────────────────────────────────────────────────────────
+
+quadrotor_env:
+   camera: no
+   sim_dt: 0.02
+   max_t: 30.0       # 30 seconds per episode
+   add_camera: yes
+
+quadrotor_dynamics:
+  mass: 0.73
+  arm_l: 0.17
+  motor_omega_min: 150.0
+  motor_omega_max: 3000.0
+  motor_tau: 0.0001
+  thrust_map: [1.3298253500372892e-06, 0.0038360810526746033, -1.7689986848125325]
+  kappa: 0.016
+  omega_max: [6.0, 6.0, 6.0]
+
+# ─── Start Position ───────────────────────────────────────
+start_pos: [17.5, -15., 6.31]
+
+# ─── Gate Course: AlphaPilot Track ─────────────────────────
+# Positions are in world frame [x, y, z] (Z=up).
+# Rotations use quaternion format [w, x, y, z].
+# C++ computes gate normal as R(q) * [1,0,0] and stores the full
+# rotation matrix for gate-frame observations.
+gates:
+  - position: [17.251110, 3.631499, 6.306498]       # Gate1
+    rotation_quat: [0.7071270, 0.0, 0.0, -0.7070865]
+  - position: [16.749825, 39.569970, 6.762500]       # Gate2
+    rotation_quat: [0.9238791, 0.0, 0.0, -0.3826845]
+  - position: [2.329821, 27.867970, 2.546500]        # Gate3
+    rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+  - position: [2.199832, 9.001728, 1.993750]          # Gate4
+    rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+  - position: [-7.308671, -12.136780, 3.229941]       # Gate5
+    rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+  - position: [-7.610180, -28.472035, 2.642500]       # Gate6
+    rotation_quat: [-0.3826836, 0.0, 0.0, -0.9238794]
+  - position: [-0.009001, -33.913000, 2.103112]       # Gate7
+    rotation_quat: [-0.0000263, 0.0, 0.0, -1.0000000]
+  - position: [5.867821, -28.440035, 2.567500]        # Gate8
+    rotation_quat: [0.3826835, 0.0, 0.0, -0.9238795]
+  - position: [7.249821, -11.792030, 2.546500]        # Gate9
+    rotation_quat: [0.7071068, 0.0, 0.0, -0.7071068]
+  - position: [-10.228670, 7.773226, 2.019941]        # Gate10
+    rotation_quat: [0.7071270, 0.0, 0.0, -0.7070865]
+  - position: [-10.048670, 30.623225, 2.897941]       # Gate11
+    rotation_quat: [0.7071323, 0.0, 0.0, -0.7070812]
+
+# ─── RL Reward Config (IROS 2021 Paper Eq. 2-5) ──────────
+rl:
+  act_coeff: 0.0            # NOT in paper Eq.4 — disabled for faithful replication
+  delta_max: 0.5             # per-step progress cap (m); at sim_dt=0.02, ~25 m/s max
+  gate_bonus: 5.0            # sparse reward for passing through a gate
+  survival_bonus: 0.0        # per-step survival reward
+  crash_penalty: -5.0        # penalty for crashing / going OOB
+  gate_radius: 1.0           # radius within which gate is "passed" (meters)
+  body_rate_coeff: 0.0005    # −b·‖ω‖² penalty (paper Eq. 4)
+  body_rate_anneal_steps: 5000000 # steps to anneal body rate penalty to 0
+  gate_width: 1.5            # w_g for gate collision penalty (meters) — AlphaPilot gates ~1.2m
+  safety_coeff: 0.0          # DISABLED until drone can fly reliably
+  safety_d_max: 1.5          # d_max for safety reward activation (meters)
+  traj_init_threshold: 0.3   # gate-pass rate to switch to Phase 2 init
+  traj_init_fraction: 0.5    # fraction of Phase 2 resets from traj buffer

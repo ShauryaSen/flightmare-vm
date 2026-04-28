@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/CMakeFiles/pybind11"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/CMakeFiles/pybind11.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/CMakeFiles/pybind11-complete.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-build.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-configure.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-download.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-install.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-mkdir.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-patch_disconnected.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-test.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/pybind11-download/pybind11-prefix/src/pybind11-stamp/pybind11-update_disconnected.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"pybind11"
+		],
+		"name" : "pybind11"
+	}
+}

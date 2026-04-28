@@ -1,0 +1,46 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/CMakeFiles/googletest"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/CMakeFiles/googletest.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/CMakeFiles/googletest-complete.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-build.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-configure.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-download.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-install.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-mkdir.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-patch_disconnected.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-test.rule"
+		},
+		{
+			"file" : "/home/ssen/flightmare/flightlib/externals/googletest-download/googletest-prefix/src/googletest-stamp/googletest-update_disconnected.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"googletest"
+		],
+		"name" : "googletest"
+	}
+}

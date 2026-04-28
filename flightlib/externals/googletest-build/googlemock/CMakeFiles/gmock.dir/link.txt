@@ -1,0 +1,2 @@
+/usr/bin/ar qc /home/ssen/flightmare/flightlib/build/lib/libgmock.a "CMakeFiles/gmock.dir/src/gmock-all.cc.o"
+/usr/bin/ranlib /home/ssen/flightmare/flightlib/build/lib/libgmock.a

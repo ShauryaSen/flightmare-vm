@@ -1,0 +1,57 @@
+# ── Python ──
+dist/
+*.egg-info
+*.so
+__pycache__/
+*.pyc
+*.pyo
+
+# ── C++ Build artifacts ──
+flightlib/build/
+_build/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+
+# ── Project context (personal development notes) ──
+context/
+
+# ── Visualization GIFs (large, generated) ──
+flightrl/training/viz/
+
+# ── Saved models, checkpoints & training logs ──
+flightrl/training/saved/
+flightrl/training/logs/
+flightrl/training/training_pid.txt
+*.zip
+*.pkl
+
+# ── TensorBoard logs ──
+**/tb_logs/
+
+# ── LaTeX build artifacts ──
+IROS21_tex_source/*.aux
+IROS21_tex_source/*.bbl
+IROS21_tex_source/*.blg
+IROS21_tex_source/*.log
+IROS21_tex_source/*.out
+IROS21_tex_source/*.fdb_latexmk
+IROS21_tex_source/*.fls
+IROS21_tex_source/*.synctex.gz
+IROS21_tex_source/*.pdf
+IROS21_tex_source/.DS_Store
+
+# ── Misc ──
+saved/
+backups/
+.sass-cache
+_posts
+_site
