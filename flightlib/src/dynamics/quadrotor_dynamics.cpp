@@ -178,8 +178,19 @@ bool QuadrotorDynamics::updateParams(const YAML::Node& params) {
       params["quadrotor_dynamics"]["omega_max"].as<std::vector<Scalar>>();
     omega_max_ = Map<Vector<3>>(omega_max.data());
 
-    // update relevant variables
+    // update relevant variables (recomputes J_ from mass/arm_l)
     updateInertiaMarix();
+
+    // Optional explicit inertia override (paper experiments.tex L44 specifies
+    // J = diag(0.003, 0.003, 0.005) kg·m² for the quadrotor configuration).
+    // The auto-computed inertia from the rod-approximation is ~2.5× heavier
+    // for typical racing-drone arm lengths, which makes the drone sluggish.
+    if (params["quadrotor_dynamics"]["inertia"]) {
+      std::vector<Scalar> inertia =
+        params["quadrotor_dynamics"]["inertia"].as<std::vector<Scalar>>();
+      J_ = Map<Vector<3>>(inertia.data()).asDiagonal();
+      J_inv_ = J_.inverse();
+    }
     return valid();
   } else {
     return false;

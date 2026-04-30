@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/bin/libgmock.pdb"
-  "/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgmock.a"
+  "/home/ssen/flightmare/flightlib/build/bin/libgmock.pdb"
+  "/home/ssen/flightmare/flightlib/build/lib/libgmock.a"
   "CMakeFiles/gmock.dir/src/gmock-all.cc.o"
   "CMakeFiles/gmock.dir/src/gmock-all.cc.o.d"
 )

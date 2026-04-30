@@ -7,7 +7,7 @@ QuadrotorEnv::QuadrotorEnv()
                  std::string("/flightlib/configs/quadrotor_env.yaml")) {}
 
 QuadrotorEnv::QuadrotorEnv(const std::string &cfg_path)
-  : EnvBase(), act_coeff_(0.0), current_gate_idx_(0), num_gates_(0),
+  : EnvBase(), current_gate_idx_(0), num_gates_(0),
     s_prev_(0.0), passed_gate_this_step_(false) {
   YAML::Node cfg_ = YAML::LoadFile(cfg_path);
   quadrotor_ptr_ = std::make_shared<Quadrotor>();
@@ -105,8 +105,9 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
       Vector<3> g_prev = (seg_idx == 0) ? start_pos_ :
                           gates_[(seg_idx - 1 + num_gates_) % num_gates_];
       Vector<3> g_curr = gates_[seg_idx];
-      // Random interpolation along segment with lateral offset
-      Scalar t = Scalar(0.2) + Scalar(uniform_dist_(random_gen_)) * Scalar(0.3) + Scalar(0.25);
+      // Paper L257: spawn "around the centers of all path segments".
+      // uniform_dist_ ∈ [-1, 1], so this gives t ∈ [0.2, 0.8] centered on 0.5.
+      Scalar t = Scalar(0.5) + Scalar(uniform_dist_(random_gen_)) * Scalar(0.3);
       Vector<3> spawn = g_prev + t * (g_curr - g_prev);
 
       quad_state_.x(QS::POSX) = spawn(0) + Scalar(uniform_dist_(random_gen_)) * Scalar(1.5);
@@ -281,15 +282,11 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
   last_progress_reward_ = 0.0;
   last_safety_reward_ = 0.0;
   last_body_rate_penalty_ = 0.0;
-  last_gate_bonus_reward_ = 0.0;
 
   if (num_gates_ > 0) {
-    // 1. Progress Reward (Paper Eq. 1)
+    // 1. Progress Reward (Paper Eq. 2): r_p = s(p_t) - s(p_{t-1}), unclamped.
     Scalar s_curr = segment_progress(quad_state_.p, current_gate_idx_);
-    // FIX: Clamp progress symmetrically to [-delta_max_, delta_max_]
-    // Previously only positive was capped, so backward movement could
-    // produce unbounded negative reward, drowning the learning signal.
-    Scalar progress = std::max(-delta_max_, std::min(s_curr - s_prev_, delta_max_));
+    Scalar progress = s_curr - s_prev_;
     last_progress_reward_ = progress;
     total_reward += progress;
 
@@ -317,21 +314,21 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
     if (s_prev_ < seg_len && s_curr >= seg_len) {
       // Crossed the plane! Check if through the opening (w_g/2)
       if (d_p < gate_width_ / 2.0) {
-        // SUCCESS: Through the gate
+        // SUCCESS: Through the gate. No bonus added — paper Eq. 4 has no
+        // gate-pass shaping term; the progress reward already accounts for
+        // forward motion through the segment.
         passed_gate_this_step_ = true;
         gates_passed_this_ep_++;
         total_gates_passed_++;
-        last_gate_bonus_reward_ = gate_bonus_;
         current_gate_idx_ = (current_gate_idx_ + 1) % num_gates_;
         s_prev_ = segment_progress(quad_state_.p, current_gate_idx_);
-        total_reward += gate_bonus_;
       } else {
-        // COLLISION: Hit the gate frame
+        // COLLISION: Hit the gate frame. Paper Eq. 5: distance-dependent
+        // terminal penalty applied in isTerminalState().
         is_gate_collision_ = true;
-        // Paper Eq. 5: Distance-dependent terminal penalty
         Scalar d_g = (quad_state_.p - g_curr).norm();
         Scalar d_g_norm = d_g / gate_width_;
-        terminal_reward_ = -std::min(d_g_norm * d_g_norm, Scalar(20.0));//-10;
+        terminal_reward_ = -std::min(d_g_norm * d_g_norm, Scalar(20.0));
       }
     } else {
       s_prev_ = s_curr;
@@ -350,23 +347,35 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
     total_reward += last_body_rate_penalty_;
   }
 
-  total_reward += act_coeff_ * act.cast<Scalar>().squaredNorm();
-  total_reward += survival_bonus_;
+  // Paper Eq. 4 has no per-step survival bonus and no action-magnitude
+  // penalty. The only reward terms are progress, safety, and body-rate
+  // penalty (above), plus the terminal r_T applied via isTerminalState().
 
   last_total_reward_ = total_reward;
   return total_reward;
 }
 
 bool QuadrotorEnv::isTerminalState(Scalar &reward) {
+  // Paper Eq. 4-5: only gate collision produces a terminal reward (r_T).
+  // Ground crashes / out-of-world simply end the episode with reward 0;
+  // there is no flat ground-crash penalty in the paper.
+  //
+  // term_reason_ encoding (exposed via extra_info for diagnostics):
+  //   0 = running (not terminal)
+  //   1 = gate collision
+  //   2 = ground crash (z <= 0.02)
+  //   3 = out of bounds (||p|| > 100)
+  //   4 = timeout (t >= max_t)
   bool terminal = false;
-  if (quad_state_.x(QS::POSZ) <= 0.02) {
-    reward = crash_penalty_; terminal = true;
+  term_reason_ = 0;
+  if (is_gate_collision_) {
+    reward = terminal_reward_; terminal = true; term_reason_ = 1;
+  } else if (quad_state_.x(QS::POSZ) <= 0.02) {
+    reward = 0.0; terminal = true; term_reason_ = 2;
   } else if (quad_state_.p.norm() > 100.0) {
-    reward = crash_penalty_; terminal = true;
-  } else if (is_gate_collision_) {
-    reward = terminal_reward_; terminal = true;
+    reward = 0.0; terminal = true; term_reason_ = 3;
   } else if (cmd_.t >= max_t_) {
-    reward = 0; terminal = true; 
+    reward = 0.0; terminal = true; term_reason_ = 4;
   } else {
     reward = 0.0;
   }
@@ -465,22 +474,16 @@ bool QuadrotorEnv::loadParam(const YAML::Node &cfg) {
     num_gates_ = 0;
   }
 
-  // ── Load reward coefficients ──
+  // ── Load reward coefficients (Paper Eq. 4-5) ──
   if (cfg["rl"]) {
-    act_coeff_ = cfg["rl"]["act_coeff"].as<Scalar>();
-    if (cfg["rl"]["delta_max"]) delta_max_ = cfg["rl"]["delta_max"].as<Scalar>();
-    if (cfg["rl"]["gate_bonus"]) gate_bonus_ = cfg["rl"]["gate_bonus"].as<Scalar>();
-    if (cfg["rl"]["survival_bonus"]) survival_bonus_ = cfg["rl"]["survival_bonus"].as<Scalar>();
-    if (cfg["rl"]["crash_penalty"]) crash_penalty_ = cfg["rl"]["crash_penalty"].as<Scalar>();
-    if (cfg["rl"]["gate_radius"]) gate_radius_ = cfg["rl"]["gate_radius"].as<Scalar>();
     if (cfg["rl"]["body_rate_coeff"]) body_rate_coeff_ = cfg["rl"]["body_rate_coeff"].as<Scalar>();
+    if (cfg["rl"]["body_rate_anneal_steps"]) body_rate_anneal_steps_ = cfg["rl"]["body_rate_anneal_steps"].as<Scalar>();
     if (cfg["rl"]["gate_width"]) gate_width_ = cfg["rl"]["gate_width"].as<Scalar>();
+    if (cfg["rl"]["safety_coeff"]) safety_a_ = cfg["rl"]["safety_coeff"].as<Scalar>();
+    if (cfg["rl"]["safety_d_max"]) safety_d_max_ = cfg["rl"]["safety_d_max"].as<Scalar>();
     // Distributed init params
     if (cfg["rl"]["traj_init_threshold"]) traj_init_threshold_ = cfg["rl"]["traj_init_threshold"].as<Scalar>();
     if (cfg["rl"]["traj_init_fraction"]) traj_init_fraction_ = cfg["rl"]["traj_init_fraction"].as<Scalar>();
-    if (cfg["rl"]["safety_coeff"]) safety_a_ = cfg["rl"]["safety_coeff"].as<Scalar>();
-    if (cfg["rl"]["safety_d_max"]) safety_d_max_ = cfg["rl"]["safety_d_max"].as<Scalar>();
-    if (cfg["rl"]["body_rate_anneal_steps"]) body_rate_anneal_steps_ = cfg["rl"]["body_rate_anneal_steps"].as<Scalar>();
   } else {
     logger_.error("Missing rl config section");
     return false;
@@ -500,25 +503,23 @@ bool QuadrotorEnv::getAct(Command *const cmd) const {
 }
 
 Scalar QuadrotorEnv::segment_progress(const Vector<3>& pos, int target_gate_idx) {
-  // Segment 0 uses start_pos_ as origin (track is not circular;
-  // start_pos is far from gate N, so G_N→G_1 wraps around the entire track).
+  // Paper Eq. 2 (methodology.tex L88-92): raw scalar projection of position
+  // onto the segment from the previous gate (or start_pos for segment 0)
+  // to the target gate. Unclamped — the per-step delta r_p = s(p_t)-s(p_{t-1})
+  // produces the correct sign for both forward and backward motion.
   Vector<3> g1 = (target_gate_idx == 0) ? start_pos_ :
                   gates_[(target_gate_idx - 1 + num_gates_) % num_gates_];
   Vector<3> g2 = gates_[target_gate_idx];
   Vector<3> seg = g2 - g1;
   Scalar seg_len = seg.norm();
   if (seg_len < 1e-6) return 0.0;
-  Scalar raw = (pos - g1).dot(seg) / seg_len;
-  // Clamp to [0, seg_len + margin] — drone cannot earn progress beyond
-  // the gate plane or behind the segment start.
-  return std::max(Scalar(0.0), std::min(raw, seg_len + Scalar(0.5)));
+  return (pos - g1).dot(seg) / seg_len;
 }
 
 void QuadrotorEnv::updateExtraInfo() {
   extra_info_["r_progress"] = last_progress_reward_;
   extra_info_["r_safety"] = last_safety_reward_;
   extra_info_["r_bodyrate"] = last_body_rate_penalty_;
-  extra_info_["r_gate_bonus"] = last_gate_bonus_reward_;
   extra_info_["r_total"] = last_total_reward_;
   extra_info_["gate_idx"] = Scalar(current_gate_idx_);
   extra_info_["s_prev"] = s_prev_;
@@ -527,6 +528,7 @@ void QuadrotorEnv::updateExtraInfo() {
   extra_info_["pos_z"] = quad_state_.p(2);
   extra_info_["vel_norm"] = quad_state_.v.norm();
   extra_info_["gates_passed"] = Scalar(gates_passed_this_ep_);
+  extra_info_["term_reason"] = Scalar(term_reason_);
 }
 
 void QuadrotorEnv::addObjectsToUnity(std::shared_ptr<UnityBridge> bridge) {

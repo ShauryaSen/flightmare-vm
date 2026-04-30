@@ -1,5 +1,5 @@
 # Autonomous Drone Racing — Project Context
-**Last updated:** 2026-04-28
+**Last updated:** 2026-04-30
 **Status:** ✅ Faithful IROS 2021 replication implemented — ready for training & ablation
 
 ---
@@ -51,7 +51,7 @@ Faithfully replicate the **IROS 2021 autonomous drone racing baseline** (Song et
 │       ├── quadrotor_env.yaml          # Split-S track (7 gates with quaternion rotations)
 │       └── vec_env.yaml                # 100 envs, no render
 │
-└── flightrl/examples_sb3/             # Python training scripts
+└── flightrl/training/                 # Python training scripts
     ├── gate_racing_iros.py             # Main training + evaluation script (VecNormalize)
     ├── sb3_vec_env.py                  # SB3 VecEnv wrapper (with getObs fix)
     ├── run_ablation.py                 # Ablation study runner
@@ -114,16 +114,18 @@ Per-motor thrusts, normalized: `act = action * act_std + act_mean`
 ### Track: Split-S (7 gates)
 From the paper's original track files. Features vertically stacked gates (gates 4 & 5) requiring rapid elevation changes. Gate rotations stored as quaternions `[w, x, y, z]` in YAML.
 
-### Reward Function (Paper Eq. 2-5)
+### Reward Function (Paper Eq. 4-5, faithful)
 ```
-r(t) = progress + gate_bonus + survival + control_penalty + body_rate_penalty
+r(t) = r_p(t) + a·r_s(t) − b·‖ω‖² + { r_T  if gate collision
+                                      { 0   otherwise
+r_p(t) = s(p_t) − s(p_{t−1})           # raw projection, unclamped
+r_T    = − min[(d_g/w_g)², 20.0]        # only on gate collision
 ```
-- **Progress:** `min(s_curr − s_prev, δ_max)` — projected distance along segment
-- **Gate bonus:** `+10.0` on gate pass
-- **Survival:** `+0.1` per step
-- **Control penalty:** `-0.0001 · ‖a‖²`
-- **Body rate penalty:** `-0.0005 · ‖ω‖²`
-- **Crash penalty:** `-5.0` (flat, on ground crash or OOB)
+- **Progress (`r_p`):** raw scalar projection delta along segment — no clamp
+- **Safety (`r_s`):** Eq. 3, gated by `safety_coeff > 0` (default 0)
+- **Body rate:** `−0.0005 · ‖ω‖²` annealed linearly to 0 over 5M steps
+- **Terminal `r_T`:** distance-dependent, only on gate collision
+- **No** survival bonus, gate-pass bonus, action penalty, or flat ground-crash penalty (paper has none of these)
 
 ### Distributed Initialization (Paper L247-261)
 Two-phase initialization strategy — one of the paper's "three key ingredients":
@@ -142,15 +144,15 @@ Two-phase initialization strategy — one of the paper's "three key ingredients"
 ```python
 PPO(
     policy="MlpPolicy",
-    policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])),
-    n_steps=250,         # per env → 25K total per update
-    batch_size=25000,    # full-batch updates
+    policy_kwargs=dict(net_arch=dict(pi=[256, 256], vf=[256, 256]), activation_fn=Tanh),
+    n_steps=1500,        # per env → 150K total per update
+    batch_size=150000,   # full-batch updates
     n_epochs=10,
     learning_rate=3e-4,
     gamma=0.99,
     gae_lambda=0.95,
     clip_range=0.2,
-    ent_coef=0.01,       # entropy bonus for exploration
+    ent_coef=0.01,
     vf_coef=0.5,
     max_grad_norm=0.5,
 )
@@ -164,7 +166,7 @@ PPO(
 
 ### Running Training
 ```bash
-cd ~/flightmare/flightrl/examples_sb3
+cd ~/flightmare/flightrl/training
 conda activate flightmare && export FLIGHTMARE_PATH=~/flightmare
 
 # Full 25M-step run
@@ -212,6 +214,18 @@ tensorboard --logdir saved/tb_logs --bind_all --port 6006
 
 ### Bug 3: `EvalCallback` hangs forever
 VecEnv auto-resets before Python sees `done=True`. **Fix:** replaced with custom `TrainingRewardCallback`.
+
+### Bug 4: Progress reward double-clamped, killing the gradient (2026-04-30)
+`segment_progress()` clamped its projection to `[0, seg_len+0.5]` AND `step()` clamped the per-step delta to `±delta_max=0.5`. Together this both capped forward progress at 25 m/s (so longer segments yielded zero gradient) and zeroed the signal entirely once the drone overshot the gate plane or drifted behind the segment start. Drone plateaued before clearing gate 0. **Fix:** unclamped raw projection per paper Eq. 2.
+
+### Bug 5: Non-paper reward shaping (2026-04-30)
+The env added `gate_bonus`, `survival_bonus`, `act_coeff·‖a‖²`, and a flat `crash_penalty` that the paper (Eq. 4) does not have. None of these unstuck training in practice and they obscured ablation comparisons. **Fix:** removed all four; only `r_p + a·r_s − b·‖ω‖²` plus `r_T` on gate collision remain.
+
+### Bug 6: Inertia ~2.5× heavier than paper (2026-04-30)
+`QuadrotorDynamics::updateInertiaMarix()` computes `J = m/12 · arm² · diag(4.5, 4.5, 7)`, giving `J_xx≈0.0079, J_zz≈0.012` for the 0.73 kg / 0.17 m drone. Paper experiments.tex L44 specifies `J = diag(0.003, 0.003, 0.005)`. The auto-computed inertia made the drone too sluggish to recover from random-policy attitude during early training. **Fix:** added optional `quadrotor_dynamics.inertia` yaml override; set to paper values. Also `kappa: 0.01` (was 0.016).
+
+### Bug 7: `gate_width` 2.5× too large (2026-04-30)
+`gate_width: 3` made the pass test `d_p < 1.5` cover a 3 m disk around the gate axis — collisions almost never registered. **Fix:** `gate_width: 1.2` (AlphaPilot/Split-S real gate side length).
 
 ---
 

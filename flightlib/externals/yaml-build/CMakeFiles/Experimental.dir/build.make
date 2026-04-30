@@ -56,7 +56,7 @@ EQUALS = =
 CMAKE_SOURCE_DIR = /home/ssen/flightmare/flightlib
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38
+CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build
 
 # Utility rule file for Experimental.
 
@@ -82,6 +82,6 @@ Experimental: /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Ex
 .PHONY : /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Experimental.dir/clean
 
 /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Experimental.dir/depend:
-	cd /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/yaml-src /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 /home/ssen/flightmare/flightlib/externals/yaml-build /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Experimental.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/ssen/flightmare/flightlib/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/yaml-src /home/ssen/flightmare/flightlib/build /home/ssen/flightmare/flightlib/externals/yaml-build /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Experimental.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Experimental.dir/depend
 

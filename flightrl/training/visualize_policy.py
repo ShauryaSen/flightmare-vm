@@ -41,6 +41,28 @@ from stable_baselines3.common.vec_env import VecNormalize
 
 # ── Data structures ─────────────────────────────────────────────
 
+TERM_REASONS = {
+    0: "running",
+    1: "gate_collision",
+    2: "ground_crash",
+    3: "out_of_bounds",
+    4: "timeout",
+}
+TERM_COLORS = {
+    "gate_collision": "#e74c3c",   # red
+    "ground_crash": "#e67e22",     # orange
+    "out_of_bounds": "#9b59b6",    # purple
+    "timeout": "#3498db",          # blue
+    "running": "#95a5a6",          # gray
+}
+TERM_MARKERS = {
+    "gate_collision": "X",
+    "ground_crash": "v",
+    "out_of_bounds": "s",
+    "timeout": "P",
+    "running": "o",
+}
+
 @dataclass
 class EpisodeTrajectory:
     """Recorded trajectory for one episode."""
@@ -52,6 +74,7 @@ class EpisodeTrajectory:
     gate_rel: np.ndarray       # (T, 3) relative gate position in body frame
     total_reward: float = 0.0
     length: int = 0
+    term_reason: str = "running"  # termination reason string
 
 
 # ── IROS 2021 Observation Space Layout (26-dim) ────────────────
@@ -86,12 +109,13 @@ def quat_to_R(w, x, y, z):
 
 
 def load_config(config_path: str):
-    """Load gate positions, normals, and start position from the YAML config."""
+    """Load gate positions, normals, rotation matrices, and start position from the YAML config."""
     yaml = ruamel.yaml.YAML()
     with open(config_path) as f:
         cfg = yaml.load(f)
     gates = []
     gate_normals = []
+    gate_rotmats = []  # full 3x3 rotation matrix per gate
     for g in cfg.get("gates", []):
         gates.append(g["position"])
         if "rotation_quat" in g:
@@ -100,8 +124,10 @@ def load_config(config_path: str):
             normal = R[:, 0]  # R * [1,0,0] — gate fly-through direction
             normal = normal / np.linalg.norm(normal)
         else:
+            R = np.eye(3)
             normal = np.array([1.0, 0.0, 0.0])
         gate_normals.append(normal)
+        gate_rotmats.append(R)
     gates = np.array(gates, dtype=np.float32)
     gate_normals = np.array(gate_normals, dtype=np.float32)
 
@@ -112,7 +138,7 @@ def load_config(config_path: str):
     if "rl" in cfg and "gate_width" in cfg["rl"]:
         gate_width = float(cfg["rl"]["gate_width"])
 
-    return gates, gate_normals, gate_width, start_pos
+    return gates, gate_normals, gate_rotmats, gate_width, start_pos
 
 
 def make_env(vecnorm_path: str = None):
@@ -201,6 +227,19 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
         # Check for completed episodes
         for i in range(n_envs):
             if done[i]:
+                # Extract termination reason from C++ extra_info
+                tr_code = int(info[i].get("term_reason", 0))
+                tr_str = TERM_REASONS.get(tr_code, "running")
+                # Fallback heuristic if term_reason not available
+                if tr_str == "running":
+                    final_pos = current_pos[i]
+                    if final_pos[2] < 0.1:
+                        tr_str = "ground_crash"
+                    elif np.linalg.norm(final_pos) > 95:
+                        tr_str = "out_of_bounds"
+                    elif len(ep_rewards[i]) >= int(30.0 / SIM_DT) - 5:
+                        tr_str = "timeout"
+
                 traj = EpisodeTrajectory(
                     positions=np.array(ep_positions[i]),
                     velocities=np.array(ep_velocities[i]),
@@ -210,6 +249,7 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
                     gate_rel=np.array(ep_gate_rel[i]),
                     total_reward=sum(ep_rewards[i]),
                     length=len(ep_rewards[i]),
+                    term_reason=tr_str,
                 )
                 completed.append(traj)
 
@@ -235,17 +275,96 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
     return completed
 
 
+# ── Gate drawing helper ──────────────────────────────────────────
+
+def draw_gate_3d(ax, pos, R, gate_width, idx, arrow_len=3.0):
+    """Draw a rectangular gate frame with normal arrow on a 3D axis.
+
+    Args:
+        ax: matplotlib 3D axis
+        pos: gate center position [x,y,z]
+        R: 3x3 rotation matrix (columns = [normal, right, up] in gate frame)
+        gate_width: side length of gate opening
+        idx: gate index for labeling
+        arrow_len: length of normal arrow
+    """
+    normal = R[:, 0]
+    right = R[:, 1]
+    up = R[:, 2]
+    hw = gate_width / 2
+
+    # Four corners of rectangular gate opening
+    corners = np.array([
+        pos + hw * right + hw * up,
+        pos - hw * right + hw * up,
+        pos - hw * right - hw * up,
+        pos + hw * right - hw * up,
+        pos + hw * right + hw * up,  # close the rectangle
+    ])
+    ax.plot(corners[:, 0], corners[:, 1], corners[:, 2],
+            "b-", linewidth=2.5, alpha=0.85)
+
+    # Gate NORMAL arrow (RED) — fly-through direction
+    ax.quiver(pos[0], pos[1], pos[2],
+              normal[0]*arrow_len, normal[1]*arrow_len, normal[2]*arrow_len,
+              color='red', linewidth=2.5, arrow_length_ratio=0.15)
+
+    # Gate UP arrow (GREEN, short)
+    ax.quiver(pos[0], pos[1], pos[2],
+              up[0]*arrow_len*0.4, up[1]*arrow_len*0.4, up[2]*arrow_len*0.4,
+              color='limegreen', linewidth=1.5, arrow_length_ratio=0.2, alpha=0.7)
+
+    # Label
+    ax.text(pos[0], pos[1], pos[2] + hw + 0.3, f"G{idx}",
+            fontsize=9, ha="center", color="blue", fontweight="bold")
+
+
+# ── Trackline spline ─────────────────────────────────────────────
+
+def compute_trackline(start_pos: np.ndarray, gates: np.ndarray, n_pts: int = 300):
+    """Compute a smooth cubic-spline trackline through start → gates.
+
+    Returns an (n_pts, 3) array of points along the center trackline
+    that the progress reward incentivises the drone to follow.
+    """
+    from scipy.interpolate import CubicSpline
+
+    waypoints = np.vstack([start_pos.reshape(1, 3), gates])  # (N+1, 3)
+    t_knots = np.zeros(len(waypoints))
+    for i in range(1, len(waypoints)):
+        t_knots[i] = t_knots[i - 1] + np.linalg.norm(waypoints[i] - waypoints[i - 1])
+
+    cs = CubicSpline(t_knots, waypoints, bc_type='natural')
+    t_fine = np.linspace(t_knots[0], t_knots[-1], n_pts)
+    return cs(t_fine)
+
+
+def draw_trackline_3d(ax, start_pos, gates):
+    """Draw the center trackline spline on a 3D axis."""
+    pts = compute_trackline(start_pos, gates)
+    ax.plot(pts[:, 0], pts[:, 1], pts[:, 2],
+            '--', color='#FFD700', linewidth=1.8, alpha=0.6, label='Trackline', zorder=2)
+
+
+def draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b):
+    """Draw the center trackline spline on a 2D axis."""
+    pts = compute_trackline(start_pos, gates)
+    ax.plot(pts[:, dim_a], pts[:, dim_b],
+            '--', color='#FFD700', linewidth=1.8, alpha=0.6, label='Trackline', zorder=2)
+
+
 # ── Static plots ─────────────────────────────────────────────────
 
 def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
                          gates: np.ndarray,
                          gate_normals: np.ndarray,
+                         gate_rotmats: list,
                          gate_width: float,
                          start_pos: np.ndarray,
                          out_path: str,
                          title: str = "Policy Trajectories",
                          top_n: int = None):
-    """Plot 3D trajectories with gate markers."""
+    """Plot 3D trajectories with rectangular gate frames and termination markers."""
     fig = plt.figure(figsize=(14, 10))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -263,66 +382,49 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
         pos = ep.positions
         alpha = 0.9 if idx < 3 else 0.3
         lw = 2.0 if idx < 3 else 0.8
-        label = (f"R={ep.total_reward:.1f} ({ep.length} steps)"
+        label = (f"R={ep.total_reward:.1f} ({ep.length}st, {ep.term_reason})"
                  if idx < 5 else None)
         ax.plot(pos[:, 0], pos[:, 1], pos[:, 2],
                 color=colors[idx], alpha=alpha, linewidth=lw, label=label)
 
         # Mark start
         ax.scatter(*pos[0], color=colors[idx], marker="o", s=30, alpha=0.8)
-        # Mark end (crash/timeout)
-        ax.scatter(*pos[-1], color=colors[idx], marker="x", s=40, alpha=0.8)
+        # Mark end with termination-reason-specific marker and color
+        tm = TERM_MARKERS.get(ep.term_reason, "x")
+        tc = TERM_COLORS.get(ep.term_reason, "#95a5a6")
+        ax.scatter(*pos[-1], color=tc, marker=tm, s=60, alpha=0.9,
+                   edgecolors="black", linewidths=0.5, zorder=6)
 
-    # Draw gates with normals, segment directions, and openings
+    # Draw gates with proper rectangular frames and normals
     for i, g in enumerate(gates):
-        # Gate opening ring perpendicular to the gate normal
-        normal = gate_normals[i]
-        # Build a frame perpendicular to the normal
-        up = np.array([0, 0, 1.0])
-        if abs(np.dot(normal, up)) > 0.95:
-            up = np.array([0, 1.0, 0])
-        perp1 = np.cross(normal, up)
-        perp1 = perp1 / np.linalg.norm(perp1)
-        perp2 = np.cross(normal, perp1)
-        perp2 = perp2 / np.linalg.norm(perp2)
-        theta = np.linspace(0, 2 * np.pi, 50)
-        r = gate_width / 2  # gate opening radius
-        gx = g[0] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 0]
-        gy = g[1] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 1]
-        gz = g[2] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 2]
-        ax.plot(gx, gy, gz, "b-", linewidth=2.5, alpha=0.8)
-        ax.scatter(*g, color="blue", s=100, marker="D", zorder=5)
+        R = gate_rotmats[i] if gate_rotmats else np.eye(3)
+        draw_gate_3d(ax, g, R, gate_width, i)
 
-        # Gate NORMAL arrow (RED) — fly-through direction
-        arrow_len = 3.0
-        ax.quiver(g[0], g[1], g[2],
-                  normal[0]*arrow_len, normal[1]*arrow_len, normal[2]*arrow_len,
-                  color='red', linewidth=2.5, arrow_length_ratio=0.15)
+    # Trackline spline (center reward path)
+    draw_trackline_3d(ax, start_pos, gates)
 
-        # SEGMENT direction arrow (CYAN) — approach from previous gate
-        if i == 0:
-            g_prev = start_pos
-        else:
-            g_prev = gates[i - 1]
-        seg_dir = g - g_prev
-        seg_dir = seg_dir / np.linalg.norm(seg_dir)
-        ax.quiver(g[0], g[1], g[2],
-                  seg_dir[0]*arrow_len*0.7, seg_dir[1]*arrow_len*0.7, seg_dir[2]*arrow_len*0.7,
-                  color='cyan', linewidth=1.8, arrow_length_ratio=0.12, alpha=0.7)
-
-        # Angle between normal and segment
-        dot_val = np.dot(normal, seg_dir)
-        angle = np.degrees(np.arccos(np.clip(abs(dot_val), 0, 1)))
-        color = 'lime' if angle < 20 else ('yellow' if angle < 45 else 'red')
-        ax.text(g[0], g[1], g[2] + 0.8, f"G{i} ({angle:.0f}°)", fontsize=9,
-                ha="center", color=color, fontweight="bold")
+    # Start position marker
+    ax.scatter(*start_pos, color="green", s=120, marker="*", zorder=10,
+               edgecolors="black", linewidths=0.5, label="Start pos")
 
     ax.set_xlabel("X (m)", fontsize=11)
     ax.set_ylabel("Y (m)", fontsize=11)
     ax.set_zlabel("Z (m)", fontsize=11)
     ax.set_title(title, fontsize=14, fontweight="bold")
-    if n <= 10:
-        ax.legend(loc="upper left", fontsize=8)
+
+    # Termination reason legend entries
+    term_handles = []
+    from matplotlib.lines import Line2D
+    for reason in ["gate_collision", "ground_crash", "out_of_bounds", "timeout"]:
+        count = sum(1 for e in sorted_eps if e.term_reason == reason)
+        if count > 0:
+            term_handles.append(Line2D(
+                [0], [0], marker=TERM_MARKERS[reason], color='w',
+                markerfacecolor=TERM_COLORS[reason], markersize=8,
+                markeredgecolor='black', markeredgewidth=0.5,
+                label=f"{reason} ({count})"))
+    ax.legend(handles=term_handles, loc="upper left", fontsize=8,
+              title="Termination", title_fontsize=9)
 
     # Equal aspect ratio
     all_pos = np.vstack([ep.positions for ep in sorted_eps])
@@ -414,6 +516,9 @@ def plot_topdown(episodes: List[EpisodeTrajectory],
                         textcoords="offset points", xytext=(8, 8),
                         fontsize=8, color=label_color, fontweight="bold")
 
+        # Trackline spline
+        draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b)
+
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_title(proj_label, fontsize=12, fontweight="bold")
@@ -428,7 +533,8 @@ def plot_topdown(episodes: List[EpisodeTrajectory],
 
 
 def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
-                        gate_normals: np.ndarray, gate_width: float,
+                        gate_normals: np.ndarray, gate_rotmats: list,
+                        gate_width: float, start_pos: np.ndarray,
                         out_path: str, title: str = "Episode Detail"):
     """Detailed multi-panel view of a single episode."""
     fig = plt.figure(figsize=(18, 10))
@@ -445,29 +551,14 @@ def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
         ax3d.plot(pos[j:j+2, 0], pos[j:j+2, 1], pos[j:j+2, 2],
                   color=plt.cm.viridis(frac), linewidth=1.5)
     ax3d.scatter(*pos[0], color="green", s=80, marker="o", label="Start")
-    ax3d.scatter(*pos[-1], color="red", s=80, marker="x", label="End")
+    tc = TERM_COLORS.get(ep.term_reason, "#e74c3c")
+    tm = TERM_MARKERS.get(ep.term_reason, "x")
+    ax3d.scatter(*pos[-1], color=tc, s=80, marker=tm,
+                 label=f"End ({ep.term_reason})")
     for i, g in enumerate(gates):
-        normal = gate_normals[i]
-        # Gate opening perpendicular to normal
-        up = np.array([0, 0, 1.0])
-        if abs(np.dot(normal, up)) > 0.95:
-            up = np.array([0, 1.0, 0])
-        perp1 = np.cross(normal, up)
-        perp1 = perp1 / np.linalg.norm(perp1)
-        perp2 = np.cross(normal, perp1)
-        perp2 = perp2 / np.linalg.norm(perp2)
-        theta_ring = np.linspace(0, 2 * np.pi, 40)
-        hw = gate_width / 2
-        rx = g[0] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 0]
-        ry = g[1] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 1]
-        rz = g[2] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 2]
-        ax3d.plot(rx, ry, rz, "b-", linewidth=2, alpha=0.7)
-        # Normal arrow
-        ax3d.quiver(g[0], g[1], g[2],
-                    normal[0]*2, normal[1]*2, normal[2]*2,
-                    color='red', linewidth=2, arrow_length_ratio=0.2)
-        ax3d.text(g[0], g[1], g[2] + 0.5, f"G{i}", color="blue",
-                  fontsize=9, ha="center")
+        R = gate_rotmats[i] if gate_rotmats else np.eye(3)
+        draw_gate_3d(ax3d, g, R, gate_width, i, arrow_len=2.0)
+    draw_trackline_3d(ax3d, start_pos, gates)
     ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
     ax3d.set_title("3D Trajectory (color = time)")
     ax3d.legend(fontsize=8)
@@ -530,8 +621,10 @@ def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
 # ── Animation ────────────────────────────────────────────────────
 
 def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
+                    gate_rotmats: list, gate_width: float,
+                    start_pos: np.ndarray,
                     out_path: str, speedup: int = 2):
-    """Create an animated GIF of a single episode."""
+    """Create an animated GIF with rectangular gate frames and termination info."""
     fig = plt.figure(figsize=(12, 9))
     ax = fig.add_subplot(111, projection="3d")
 
@@ -540,14 +633,13 @@ def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
     center = all_pts.mean(axis=0)
     max_range = (all_pts.max(axis=0) - all_pts.min(axis=0)).max() / 2 * 1.3
 
-    # Draw gates
+    # Draw gates with proper rectangular frames
     for i, g in enumerate(gates):
-        theta = np.linspace(0, 2 * np.pi, 50)
-        ax.plot(g[0] + np.cos(theta), g[1] + np.sin(theta),
-                np.full(50, g[2]), "b-", linewidth=2.5, alpha=0.7)
-        ax.scatter(*g, color="blue", s=100, marker="D", zorder=5)
-        ax.text(g[0], g[1], g[2] + 0.5, f"G{i}", fontsize=10,
-                ha="center", color="blue", fontweight="bold")
+        R = gate_rotmats[i] if gate_rotmats else np.eye(3)
+        draw_gate_3d(ax, g, R, gate_width, i)
+
+    # Trackline spline
+    draw_trackline_3d(ax, start_pos, gates)
 
     # Trail line + drone marker
     trail_line, = ax.plot([], [], [], "r-", linewidth=1.5, alpha=0.6)
@@ -560,12 +652,18 @@ def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
                             fontsize=10,
                             bbox=dict(boxstyle="round", facecolor="lightyellow",
                                       alpha=0.8))
+    # Termination reason display (shown on last frame)
+    tc = TERM_COLORS.get(ep.term_reason, "#95a5a6")
+    term_text = ax.text2D(0.02, 0.81, "", transform=ax.transAxes,
+                          fontsize=10, color=tc, fontweight="bold",
+                          bbox=dict(boxstyle="round", facecolor="white",
+                                    alpha=0.8, edgecolor=tc))
 
     ax.set_xlim(center[0] - max_range, center[0] + max_range)
     ax.set_ylim(center[1] - max_range, center[1] + max_range)
     ax.set_zlim(max(0, center[2] - max_range), center[2] + max_range)
     ax.set_xlabel("X (m)"); ax.set_ylabel("Y (m)"); ax.set_zlabel("Z (m)")
-    ax.set_title(f"Flight Animation (R={ep.total_reward:.1f})",
+    ax.set_title(f"Flight Animation (R={ep.total_reward:.1f}, {ep.term_reason})",
                  fontsize=13, fontweight="bold")
 
     # Select frames (subsample for speed)
@@ -583,7 +681,12 @@ def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
         time_text.set_text(f"t = {t_sec:.2f}s  (step {idx})")
         cum_rew = ep.rewards[:idx+1].sum()
         reward_text.set_text(f"Cumul. reward: {cum_rew:.1f}")
-        return trail_line, drone_marker, time_text, reward_text
+        # Show termination reason on final frames
+        if frame_num >= len(frame_indices) - 3:
+            term_text.set_text(f"ENDED: {ep.term_reason}")
+        else:
+            term_text.set_text("")
+        return trail_line, drone_marker, time_text, reward_text, term_text
 
     anim = animation.FuncAnimation(
         fig, update, frames=len(frame_indices),
@@ -629,6 +732,17 @@ def print_summary(episodes: List[EpisodeTrajectory]):
           f"{np.max(sim_times):>10.2f}")
     print(f"{'='*65}")
 
+    # Termination reason breakdown
+    from collections import Counter
+    term_counts = Counter(e.term_reason for e in episodes)
+    print(f"\n  Termination Reasons:")
+    for reason in ["gate_collision", "ground_crash", "out_of_bounds", "timeout", "running"]:
+        count = term_counts.get(reason, 0)
+        if count > 0:
+            pct = 100.0 * count / len(episodes)
+            avg_r = np.mean([e.total_reward for e in episodes if e.term_reason == reason])
+            print(f"    {reason:<20s}  {count:3d} ({pct:5.1f}%)  avg_R={avg_r:.2f}")
+
     # Top/bottom episodes
     sorted_eps = sorted(enumerate(episodes),
                         key=lambda x: x[1].total_reward, reverse=True)
@@ -638,14 +752,15 @@ def print_summary(episodes: List[EpisodeTrajectory]):
         print(f"    #{rank+1}: R={ep.total_reward:7.2f}  "
               f"len={ep.length:4d}  "
               f"avg_speed={avg_spd:.2f} m/s  "
-              f"flight_time={ep.length*0.02:.1f}s")
+              f"{ep.term_reason}")
 
     print(f"\n  Bottom 3 episodes:")
     for rank, (i, ep) in enumerate(sorted_eps[-3:]):
         avg_spd = np.linalg.norm(ep.velocities, axis=1).mean()
         print(f"    R={ep.total_reward:7.2f}  "
               f"len={ep.length:4d}  "
-              f"avg_speed={avg_spd:.2f} m/s")
+              f"avg_speed={avg_spd:.2f} m/s  "
+              f"{ep.term_reason}")
     print()
 
 
@@ -685,7 +800,7 @@ def main():
                                      os.path.expanduser("~/flightmare"))
     config_path = os.path.join(flightmare_path,
                                "flightlib/configs/quadrotor_env.yaml")
-    gates, gate_normals, gate_width, start_pos = load_config(config_path)
+    gates, gate_normals, gate_rotmats, gate_width, start_pos = load_config(config_path)
     print(f"Loaded {len(gates)} gates from config")
     print(f"Start position: {start_pos}")
     print(f"Gate width: {gate_width}m (opening radius: {gate_width/2}m)")
@@ -718,7 +833,7 @@ def main():
 
     # 1. 3D trajectory overlay
     plot_3d_trajectories(
-        episodes, gates, gate_normals, gate_width, start_pos,
+        episodes, gates, gate_normals, gate_rotmats, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_3d_trajectories.png"),
         title=f"3D Trajectories — {model_name}",
     )
@@ -733,28 +848,30 @@ def main():
     # 3. Detailed view of best and worst episodes
     sorted_eps = sorted(episodes, key=lambda e: e.total_reward, reverse=True)
     plot_episode_detail(
-        sorted_eps[0], gates, gate_normals, gate_width,
+        sorted_eps[0], gates, gate_normals, gate_rotmats, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_best_episode.png"),
-        title=f"Best Episode (R={sorted_eps[0].total_reward:.1f}) — {model_name}",
+        title=f"Best Episode (R={sorted_eps[0].total_reward:.1f}, {sorted_eps[0].term_reason}) — {model_name}",
     )
     plot_episode_detail(
-        sorted_eps[-1], gates, gate_normals, gate_width,
+        sorted_eps[-1], gates, gate_normals, gate_rotmats, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_worst_episode.png"),
-        title=f"Worst Episode (R={sorted_eps[-1].total_reward:.1f}) — {model_name}",
+        title=f"Worst Episode (R={sorted_eps[-1].total_reward:.1f}, {sorted_eps[-1].term_reason}) — {model_name}",
     )
 
     # 4. Animations (optional)
     if args.animate:
         print(f"\nCreating {args.animate_n} animations...")
         for idx, ep in enumerate(sorted_eps[:args.animate_n]):
-            out_path = str(out_dir / f"{model_name}_ep{idx+1}_R{ep.total_reward:.0f}.gif")
-            animate_episode(ep, gates, out_path, speedup=args.speedup)
+            out_path = str(out_dir / f"{model_name}_ep{idx+1}_R{ep.total_reward:.0f}_{ep.term_reason}.gif")
+            animate_episode(ep, gates, gate_rotmats, gate_width, start_pos,
+                            out_path, speedup=args.speedup)
 
     # Save raw trajectory data for later analysis
     np.savez_compressed(
         str(out_dir / f"{model_name}_trajectories.npz"),
         rewards=[e.total_reward for e in episodes],
         lengths=[e.length for e in episodes],
+        term_reasons=[e.term_reason for e in episodes],
         gates=gates,
         # Save best episode fully for reference
         best_positions=sorted_eps[0].positions,

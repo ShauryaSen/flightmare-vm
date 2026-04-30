@@ -1,2 +1,2 @@
-/usr/bin/ar qc /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgtest.a "CMakeFiles/gtest.dir/src/gtest-all.cc.o"
-/usr/bin/ranlib /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgtest.a
+/usr/bin/ar qc /home/ssen/flightmare/flightlib/build/lib/libgtest.a "CMakeFiles/gtest.dir/src/gtest-all.cc.o"
+/usr/bin/ranlib /home/ssen/flightmare/flightlib/build/lib/libgtest.a

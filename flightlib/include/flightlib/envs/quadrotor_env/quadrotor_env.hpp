@@ -136,26 +136,21 @@ class QuadrotorEnv final : public EnvBase {
   // ── Acceleration tracking (for v̇_WB obs) ──
   Vector<3> prev_vel_{Vector<3>::Zero()};  // velocity at previous timestep
 
-  // ── Reward coefficients ──
-  Scalar act_coeff_;
-  Scalar delta_max_{0.5};              // max progress reward per step
-  Scalar gate_bonus_{10.0};           // sparse reward for gate pass
-  Scalar survival_bonus_{0.1};        // per-step survival reward
-  Scalar crash_penalty_{-5.0};        // penalty for crashing
-  Scalar body_rate_coeff_{0.0};        // −b·‖ω‖² penalty (paper Eq. 4)
+  // ── Reward coefficients (Paper Eq. 4-5) ──
+  Scalar body_rate_coeff_{0.0};        // b in −b·‖ω‖² penalty
   Scalar body_rate_anneal_steps_{0};   // steps over which to anneal b to 0
-  Scalar gate_width_{0.75};            // w_g for gate collision penalty
+  Scalar gate_width_{1.2};             // w_g (gate side length, AlphaPilot/Split-S)
   Scalar safety_a_{0.0};               // a in Eq. 4 (safety weight)
-  Scalar safety_d_max_{1.0};           // threshold to activate safety reward
+  Scalar safety_d_max_{1.0};           // d_max — threshold to activate safety reward
   bool is_gate_collision_{false};      // flag for gate collision terminal
-  Scalar terminal_reward_{0.0};        // store r_T for terminal check
+  Scalar terminal_reward_{0.0};        // r_T (Eq. 5) computed on gate collision
 
   // ── Reward component tracking (for extra_info logging) ──
   Scalar last_progress_reward_{0.0};
   Scalar last_safety_reward_{0.0};
   Scalar last_body_rate_penalty_{0.0};
-  Scalar last_gate_bonus_reward_{0.0};
   Scalar last_total_reward_{0.0};
+  int term_reason_{0};  // 0=running, 1=gate_collision, 2=ground, 3=oob, 4=timeout
 
   // ── Helper ──
   Scalar segment_progress(const Vector<3>& pos, int target_gate_idx);

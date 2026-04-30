@@ -56,7 +56,7 @@ EQUALS = =
 CMAKE_SOURCE_DIR = /home/ssen/flightmare/flightlib
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38
+CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build
 
 # Include any dependencies generated for this target.
 include /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/depend.make
@@ -70,9 +70,9 @@ include /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CM
 include /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/flags.make
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o: /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/flags.make
-/home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o: ../../externals/googletest-src/googlemock/src/gmock-all.cc
+/home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o: ../externals/googletest-src/googlemock/src/gmock-all.cc
 /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o: /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/ssen/flightmare/flightlib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o"
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o -MF CMakeFiles/gmock.dir/src/gmock-all.cc.o.d -o CMakeFiles/gmock.dir/src/gmock-all.cc.o -c /home/ssen/flightmare/flightlib/externals/googletest-src/googlemock/src/gmock-all.cc
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.i: cmake_force
@@ -93,7 +93,7 @@ gmock_EXTERNAL_OBJECTS =
 lib/libgmock.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/src/gmock-all.cc.o
 lib/libgmock.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/build.make
 lib/libgmock.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX static library /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgmock.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/ssen/flightmare/flightlib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX static library /home/ssen/flightmare/flightlib/build/lib/libgmock.a"
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock && $(CMAKE_COMMAND) -P CMakeFiles/gmock.dir/cmake_clean_target.cmake
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/gmock.dir/link.txt --verbose=$(VERBOSE)
 
@@ -106,6 +106,6 @@ lib/libgmock.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googl
 .PHONY : /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/clean
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/depend:
-	cd /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/googletest-src/googlemock /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/ssen/flightmare/flightlib/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/googletest-src/googlemock /home/ssen/flightmare/flightlib/build /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : /home/ssen/flightmare/flightlib/externals/googletest-build/googlemock/CMakeFiles/gmock.dir/depend
 

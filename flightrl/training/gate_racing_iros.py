@@ -30,8 +30,6 @@ import argparse
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from typing import Dict, List, Tuple, Type, Union
 
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import (
@@ -40,86 +38,11 @@ from stable_baselines3.common.callbacks import (
     CallbackList,
 )
 from stable_baselines3.common.logger import configure
-from stable_baselines3.common.torch_layers import MlpExtractor
 from stable_baselines3.common.vec_env import VecNormalize
-from stable_baselines3.common.utils import get_device
 
 # Import the SB3-compatible VecEnv wrapper for flightgym
 import flightgym
 from sb3_vec_env import FlightmareSB3VecEnv
-
-
-# ──────────────────────────────────────────────────────────────────────
-# SwiGLU Activation & Custom MLP Extractor
-# ──────────────────────────────────────────────────────────────────────
-
-class SwiGLULayer(nn.Module):
-    """
-    SwiGLU gated linear unit (Shazeer 2020, "GLU Variants Improve Transformer").
-
-    Replaces the standard  Linear(in, out) → Activation  pattern with:
-        output = SiLU(x @ W_gate + b_gate) ⊙ (x @ W_up + b_up)
-
-    This produces an output of `hidden_dim` from an input of `in_features`,
-    using two parallel linear projections.
-    """
-
-    def __init__(self, in_features: int, hidden_dim: int):
-        super().__init__()
-        self.w_gate = nn.Linear(in_features, hidden_dim)
-        self.w_up = nn.Linear(in_features, hidden_dim)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return F.silu(self.w_gate(x)) * self.w_up(x)
-
-
-class SwiGLUMlpExtractor(MlpExtractor):
-    """
-    Drop-in replacement for SB3's MlpExtractor that uses SwiGLU layers
-    instead of Linear + activation_fn.
-
-    Accepts the same `net_arch` specification as the default extractor:
-      - dict(pi=[256, 256], vf=[256, 256])  or  [256, 256]
-
-    Each layer becomes a SwiGLULayer(in_dim, hidden_dim) rather than
-    nn.Linear(in_dim, hidden_dim) + activation_fn().
-    """
-
-    def __init__(
-        self,
-        feature_dim: int,
-        net_arch: Union[List[int], Dict[str, List[int]]],
-        activation_fn: Type[nn.Module],  # ignored, kept for API compat
-        device: Union[torch.device, str] = "auto",
-    ) -> None:
-        # Skip MlpExtractor.__init__ — we rebuild the networks ourselves
-        nn.Module.__init__(self)
-        device = get_device(device)
-
-        if isinstance(net_arch, dict):
-            pi_layers = net_arch.get("pi", [])
-            vf_layers = net_arch.get("vf", [])
-        else:
-            pi_layers = vf_layers = net_arch
-
-        # Build policy network with SwiGLU layers
-        policy_net: List[nn.Module] = []
-        last_pi = feature_dim
-        for dim in pi_layers:
-            policy_net.append(SwiGLULayer(last_pi, dim))
-            last_pi = dim
-
-        # Build value network with SwiGLU layers
-        value_net: List[nn.Module] = []
-        last_vf = feature_dim
-        for dim in vf_layers:
-            value_net.append(SwiGLULayer(last_vf, dim))
-            last_vf = dim
-
-        self.latent_dim_pi = last_pi
-        self.latent_dim_vf = last_vf
-        self.policy_net = nn.Sequential(*policy_net).to(device)
-        self.value_net = nn.Sequential(*value_net).to(device)
 
 
 class TrainingRewardCallback(BaseCallback):
@@ -246,11 +169,9 @@ def train(args):
         ent_coef=0.01,  # entropy bonus for exploration
         vf_coef=0.5,
         max_grad_norm=0.5,
-        # Network architecture (2-layer MLP with SwiGLU activation)
-        # SwiGLU replaces Tanh for better gradient flow and expressiveness
+        # Network architecture (2-layer MLP, same as paper Priority 7)
         policy_kwargs=dict(
-            mlp_extractor_class=SwiGLUMlpExtractor,
-            activation_fn=nn.Tanh,  # unused by SwiGLU extractor, kept for API compat
+            activation_fn=nn.Tanh,
             net_arch=dict(pi=[256, 256], vf=[256, 256]),
         ),
         verbose=1,

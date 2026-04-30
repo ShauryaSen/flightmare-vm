@@ -35,11 +35,7 @@ class QuadrotorEnvTestAccess {
   static Vector<3>& startPos(QuadrotorEnv& e) { return e.start_pos_; }
   static Vector<quadenv::kNAct>& actMean(QuadrotorEnv& e) { return e.act_mean_; }
   static Vector<quadenv::kNAct>& actStd(QuadrotorEnv& e) { return e.act_std_; }
-  static Scalar gateBonus(QuadrotorEnv& e) { return e.gate_bonus_; }
-  static Scalar survivalBonus(QuadrotorEnv& e) { return e.survival_bonus_; }
-  static Scalar crashPenalty(QuadrotorEnv& e) { return e.crash_penalty_; }
   static Scalar gateWidth(QuadrotorEnv& e) { return e.gate_width_; }
-  static Scalar deltaMax(QuadrotorEnv& e) { return e.delta_max_; }
   static long& totalSteps(QuadrotorEnv& e) { return e.total_steps_; }
 
   static Scalar segProgress(QuadrotorEnv& e, const Vector<3>& pos, int idx) {
@@ -73,11 +69,10 @@ TEST(SegmentProgress, CorrectProjection) {
   EXPECT_NEAR(TA::segProgress(env, Vector<3>(0,0,5), 0), 0.0, 1e-6);
   EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,0,5), 0), 10.0, 1e-6);
   EXPECT_NEAR(TA::segProgress(env, Vector<3>(20,0,5), 0), 20.0, 1e-6);
-  // Beyond: clamped to seg_len + 0.5
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(21,0,5), 0), 20.5, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(50,0,5), 0), 20.5, 1e-6);
-  // Behind: clamped to 0
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(-5,0,5), 0), 0.0, 1e-6);
+  // Paper Eq. 2: raw unclamped projection — overshoot and backward both linear
+  EXPECT_NEAR(TA::segProgress(env, Vector<3>(21,0,5), 0), 21.0, 1e-6);
+  EXPECT_NEAR(TA::segProgress(env, Vector<3>(50,0,5), 0), 50.0, 1e-6);
+  EXPECT_NEAR(TA::segProgress(env, Vector<3>(-5,0,5), 0), -5.0, 1e-6);
   // Lateral offset doesn't affect projection
   EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,5,5), 0), 10.0, 1e-6);
   EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,0,10), 0), 10.0, 1e-6);
@@ -123,10 +118,9 @@ TEST(RewardAccumulation, StraightLineTotal) {
     Scalar r = env.step(act, obs);
     total_reward += r;
   }
-  // Steps 1-39: progress=0.5, survival=0.1 → 0.6 each = 23.4
-  // Step 40: crosses gate → progress=0.5 + survival=0.1 + gate_bonus=10 = 10.6
-  // Total = 39*0.6 + 10.6 = 34.0
-  EXPECT_NEAR(total_reward, 34.0, 0.5);
+  // Paper Eq. 4: only progress (and a tiny body-rate penalty for stationary
+  // hover, which is ~0). 40 steps * 0.5 m/step = 20 m segment length.
+  EXPECT_NEAR(total_reward, 20.0, 0.5);
   EXPECT_EQ(TA::gateIdx(env), 1);
   EXPECT_EQ(TA::gatesPassedEp(env), 1);
 }
@@ -271,7 +265,8 @@ TEST(Terminal, GroundCrash) {
   TA::quad(env)->reset(TA::state(env));
   Scalar r = 0;
   EXPECT_TRUE(env.isTerminalState(r));
-  EXPECT_NEAR(r, TA::crashPenalty(env), 1e-4);
+  // Paper has no flat ground-crash penalty; episode just ends with reward 0.
+  EXPECT_NEAR(r, 0.0, 1e-4);
 }
 
 TEST(Terminal, NotTerminalAboveGround) {

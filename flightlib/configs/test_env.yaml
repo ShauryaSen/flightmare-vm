@@ -39,14 +39,8 @@ gates:
   - position: [60.0, 0.0, 5.0]
     rotation_quat: [1.0, 0.0, 0.0, 0.0]
 
-# ─── RL Reward Config ─────────────────────────────────────
+# ─── RL Reward Config (paper Eq. 4-5) ────────────────────
 rl:
-  act_coeff: 0.0
-  delta_max: 0.5
-  gate_bonus: 10.0
-  survival_bonus: 0.1
-  crash_penalty: -5.0
-  gate_radius: 1.0
   body_rate_coeff: 0.0
   body_rate_anneal_steps: 0
   gate_width: 1.5
