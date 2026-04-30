@@ -1,2 +1,2 @@
-/usr/bin/ar qc /home/ssen/flightmare/flightlib/build/lib/libgmock_main.a CMakeFiles/gmock_main.dir/src/gmock_main.cc.o
-/usr/bin/ranlib /home/ssen/flightmare/flightlib/build/lib/libgmock_main.a
+/usr/bin/ar qc /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgmock_main.a CMakeFiles/gmock_main.dir/src/gmock_main.cc.o
+/usr/bin/ranlib /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgmock_main.a

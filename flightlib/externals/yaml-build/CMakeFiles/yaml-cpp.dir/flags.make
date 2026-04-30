@@ -6,5 +6,5 @@ CXX_DEFINES = -DYAML_CPP_STATIC_DEFINE
 
 CXX_INCLUDES = -I/home/ssen/flightmare/flightlib/externals/yaml-src/include -I/home/ssen/flightmare/flightlib/externals/yaml-src/src -isystem /home/ssen/flightmare/flightlib/externals/pybind11-src/include
 
-CXX_FLAGS = -O3 -DNDEBUG -std=gnu++11 -fPIC -fPIC -w
+CXX_FLAGS = -DVERSION_INFO=\"0.0.1\" -O3 -DNDEBUG -std=gnu++11 -fPIC -fPIC -w
 

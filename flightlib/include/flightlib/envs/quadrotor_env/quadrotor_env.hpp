@@ -69,6 +69,9 @@ struct TrajectorySnapshot {
 };
 
 class QuadrotorEnv final : public EnvBase {
+  // Grant test classes access to private members for verification
+  friend class QuadrotorEnvTestAccess;
+
  public:
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 

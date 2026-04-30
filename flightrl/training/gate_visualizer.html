@@ -1,0 +1,510 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Gate Track Visualizer — Flightmare Diagnostic</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { 
+    font-family: 'Segoe UI', system-ui, sans-serif; 
+    background: #0a0a1a; 
+    color: #e0e0e0; 
+    overflow: hidden;
+  }
+  #info {
+    position: absolute; top: 10px; left: 10px; z-index: 10;
+    background: rgba(0,0,0,0.85); padding: 16px 20px; border-radius: 10px;
+    font-size: 13px; line-height: 1.6; max-width: 340px;
+    border: 1px solid rgba(100,100,255,0.3);
+    backdrop-filter: blur(8px);
+  }
+  #info h2 { color: #7ca0ff; margin-bottom: 8px; font-size: 15px; }
+  #info .legend { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  #info .legend .swatch { width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  #controls {
+    position: absolute; top: 10px; right: 10px; z-index: 10;
+    background: rgba(0,0,0,0.85); padding: 16px 20px; border-radius: 10px;
+    border: 1px solid rgba(100,100,255,0.3);
+    backdrop-filter: blur(8px);
+    font-size: 13px;
+  }
+  #controls h3 { color: #7ca0ff; margin-bottom: 8px; font-size: 14px; }
+  #controls label { display: block; margin: 5px 0; cursor: pointer; }
+  #controls input[type=checkbox] { margin-right: 6px; }
+  #controls select, #controls button {
+    margin: 4px 0; padding: 5px 10px; background: #1a1a3a; color: #e0e0e0;
+    border: 1px solid #444; border-radius: 4px; cursor: pointer; font-size: 12px;
+  }
+  #controls button:hover { background: #2a2a5a; }
+  #gate-info {
+    position: absolute; bottom: 10px; left: 10px; z-index: 10;
+    background: rgba(0,0,0,0.85); padding: 12px 16px; border-radius: 10px;
+    border: 1px solid rgba(100,100,255,0.3);
+    font-size: 12px; max-width: 500px; max-height: 300px; overflow-y: auto;
+    backdrop-filter: blur(8px);
+  }
+  #gate-info h3 { color: #7ca0ff; margin-bottom: 6px; }
+  #gate-info table { border-collapse: collapse; width: 100%; }
+  #gate-info th, #gate-info td { padding: 3px 6px; text-align: left; border-bottom: 1px solid #333; }
+  #gate-info th { color: #aaa; font-weight: normal; }
+  .dot-pos { color: #4caf50; }
+  .dot-neg { color: #f44336; }
+  #tooltip {
+    position: absolute; display: none; z-index: 20;
+    background: rgba(0,0,0,0.9); padding: 10px 14px; border-radius: 8px;
+    border: 1px solid #7ca0ff; font-size: 12px; pointer-events: none;
+    max-width: 280px;
+  }
+</style>
+</head>
+<body>
+
+<div id="info">
+  <h2>🏁 Gate Track Visualizer</h2>
+  <div class="legend"><div class="swatch" style="background:#4488ff"></div> Gate rings (fly-through opening)</div>
+  <div class="legend"><div class="swatch" style="background:#ff4444"></div> Gate normal (R × [1,0,0]) = fly-through dir</div>
+  <div class="legend"><div class="swatch" style="background:#44ff44"></div> Segment path (gate → gate)</div>
+  <div class="legend"><div class="swatch" style="background:#ffaa00"></div> Start position</div>
+  <div class="legend"><div class="swatch" style="background:#ff44ff"></div> Approach direction (segment → gate)</div>
+  <p style="margin-top:10px;color:#999;font-size:11px">
+    🖱 Left-drag: orbit · Right-drag: pan · Scroll: zoom<br>
+    Click a gate to highlight it
+  </p>
+</div>
+
+<div id="controls">
+  <h3>⚙ Display Options</h3>
+  <label><select id="quat-source">
+    <option value="current" selected>Current YAML quats (auto-face)</option>
+    <option value="alphapilot">AlphaPilot original quats</option>
+  </select></label>
+  <label><input type="checkbox" id="show-normals" checked> Show normals (red arrows)</label>
+  <label><input type="checkbox" id="show-segments" checked> Show segment path</label>
+  <label><input type="checkbox" id="show-rings" checked> Show gate rings</label>
+  <label><input type="checkbox" id="show-approach" checked> Show approach arrows</label>
+  <label><input type="checkbox" id="show-labels" checked> Show gate labels</label>
+  <label><input type="checkbox" id="show-dot-colors" checked> Color by dot(normal, approach)</label>
+  <button id="btn-top">Top-down view</button>
+  <button id="btn-side">Side view</button>
+  <button id="btn-3d">3D perspective</button>
+  <button id="btn-reset">Reset camera</button>
+</div>
+
+<div id="gate-info">
+  <h3>📊 Gate Normal vs Approach Analysis</h3>
+  <table id="gate-table">
+    <tr><th>Gate</th><th>Normal</th><th>Approach</th><th>Dot</th><th>Angle</th></tr>
+  </table>
+</div>
+
+<div id="tooltip"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+
+// ── Data ────────────────────────────────────────────────────
+
+const gatePositions = [
+  [17.25, 3.63, 6.31],    // G1
+  [16.75, 39.57, 6.76],   // G2
+  [2.33, 27.87, 2.55],    // G3
+  [2.20, 9.00, 1.99],     // G4
+  [-7.31, -12.14, 3.23],  // G5
+  [-7.61, -28.47, 2.64],  // G6
+  [-0.01, -33.91, 2.10],  // G7
+  [5.87, -28.44, 2.57],   // G8
+  [7.25, -11.79, 2.55],   // G9
+  [-10.23, 7.77, 2.02],   // G10
+  [-10.05, 30.62, 2.90],  // G11
+];
+
+const startPos = [17.5, -15.0, 6.31];
+
+// Current YAML quaternions (auto-face path)
+const currentQuats = [
+  [0.9771817, -0.01343000920589536, 0.065047637429392, 0.2017531],
+  [0.2280067, 0.11531715801674725, -0.027206581810986515, 0.9664237],
+  [0.5335431, -0.05887161003653859, -0.03726493386451581, -0.8428981],
+  [0.6272654, 0.004774282673377631, 0.003845420905743276, -0.7787814],
+  [0.6250068, 0.0034548347958006805, 0.002766175553015647, -0.7806067],
+  [0.8507814, -0.013872470162431589, -0.022487043651383685, -0.5248551],
+  [0.9994835, -0.0000012978660909514265, 0.000040364775467993254, 0.0321368],
+  [0.8473638, -0.008039958766361295, 0.012834988435292868, 0.5307967],
+  [0.5841497, 0.0047098038495232515, -0.0033897797781538854, 0.8116252],
+  [0.5687835, -0.004041671728656527, 0.0027950308781103544, 0.8224726],
+  [0.9773087, -0.015891114827876775, 0.0793354135254295, 0.1957578],
+];
+
+// AlphaPilot original quaternions
+const alphapilotQuats = [
+  [0.7071270, 0.0, 0.0, -0.7070865],
+  [0.9238791, 0.0, 0.0, -0.3826845],
+  [0.7071068, 0.0, 0.0, 0.7071068],
+  [0.7071068, 0.0, 0.0, 0.7071068],
+  [0.7071068, 0.0, 0.0, 0.7071068],
+  [-0.3826836, 0.0, 0.0, -0.9238794],
+  [-0.0000263, 0.0, 0.0, -1.0000000],
+  [0.3826835, 0.0, 0.0, -0.9238795],
+  [0.7071068, 0.0, 0.0, -0.7071068],
+  [0.7071270, 0.0, 0.0, -0.7070865],
+  [0.7071323, 0.0, 0.0, -0.7070812],
+];
+
+const numGates = gatePositions.length;
+
+// ── Math helpers ────────────────────────────────────────────
+
+function quatToR(w, x, y, z) {
+  const n = Math.sqrt(w*w + x*x + y*y + z*z);
+  w /= n; x /= n; y /= n; z /= n;
+  return [
+    [1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y)],
+    [2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x)],
+    [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)]
+  ];
+}
+
+function matCol(R, col) {
+  return [R[0][col], R[1][col], R[2][col]];
+}
+
+function normalize(v) {
+  const n = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+  return n > 1e-8 ? [v[0]/n, v[1]/n, v[2]/n] : [0,0,0];
+}
+
+function dot(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+function sub(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+
+// ── Scene setup ─────────────────────────────────────────────
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0a0a1a);
+scene.fog = new THREE.FogExp2(0x0a0a1a, 0.003);
+
+const camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 500);
+camera.position.set(30, -60, 40);
+camera.up.set(0, 0, 1);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.pointerEvents = 'none';
+document.body.appendChild(labelRenderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 0, 3);
+controls.enableDamping = true;
+controls.dampingFactor = 0.1;
+
+// Lights
+scene.add(new THREE.AmbientLight(0x404060, 1.0));
+const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+dirLight.position.set(20, -20, 30);
+scene.add(dirLight);
+
+// Ground grid
+const gridHelper = new THREE.GridHelper(120, 60, 0x333355, 0x222244);
+gridHelper.rotation.x = Math.PI / 2; // Z-up
+scene.add(gridHelper);
+
+// Ground plane (subtle)
+const groundGeo = new THREE.PlaneGeometry(200, 200);
+const groundMat = new THREE.MeshLambertMaterial({ color: 0x0d0d22, transparent: true, opacity: 0.5 });
+const ground = new THREE.Mesh(groundGeo, groundMat);
+ground.position.z = -0.01;
+scene.add(ground);
+
+// Axes helper
+const axes = new THREE.AxesHelper(5);
+scene.add(axes);
+
+// ── Dynamic objects (rebuilt when switching quaternions) ─────
+
+const dynamicGroup = new THREE.Group();
+scene.add(dynamicGroup);
+const labelGroup = new THREE.Group();
+scene.add(labelGroup);
+
+function clearDynamic() {
+  while (dynamicGroup.children.length) {
+    const c = dynamicGroup.children[0];
+    dynamicGroup.remove(c);
+    if (c.geometry) c.geometry.dispose();
+    if (c.material) c.material.dispose();
+  }
+  while (labelGroup.children.length) {
+    labelGroup.remove(labelGroup.children[0]);
+  }
+}
+
+function buildScene(quats) {
+  clearDynamic();
+  const showNormals = document.getElementById('show-normals').checked;
+  const showSegments = document.getElementById('show-segments').checked;
+  const showRings = document.getElementById('show-rings').checked;
+  const showApproach = document.getElementById('show-approach').checked;
+  const showLabels = document.getElementById('show-labels').checked;
+  const showDotColors = document.getElementById('show-dot-colors').checked;
+
+  const tableBody = document.getElementById('gate-table');
+  tableBody.innerHTML = '<tr><th>Gate</th><th>Normal (fly-through)</th><th>Approach dir</th><th>Dot</th><th>Angle</th></tr>';
+
+  // Start position marker
+  const startGeo = new THREE.SphereGeometry(0.6, 16, 16);
+  const startMat = new THREE.MeshPhongMaterial({ color: 0xffaa00, emissive: 0x553300 });
+  const startMesh = new THREE.Mesh(startGeo, startMat);
+  startMesh.position.set(startPos[0], startPos[1], startPos[2]);
+  dynamicGroup.add(startMesh);
+
+  if (showLabels) {
+    const startLabel = makeLabel('START', '#ffaa00');
+    startLabel.position.set(startPos[0], startPos[1], startPos[2] + 1.2);
+    labelGroup.add(startLabel);
+  }
+
+  // Segment from start to G1
+  if (showSegments) {
+    const startLine = makeArrow(startPos, gatePositions[0], 0x666600, 0.08);
+    dynamicGroup.add(startLine);
+  }
+
+  for (let i = 0; i < numGates; i++) {
+    const pos = gatePositions[i];
+    const q = quats[i];
+    const R = quatToR(q[0], q[1], q[2], q[3]);
+    const normal = normalize(matCol(R, 0)); // R * [1,0,0]
+    const gateY = normalize(matCol(R, 1));  // R * [0,1,0] — gate "up"
+    const gateZ = normalize(matCol(R, 2));  // R * [0,0,1] — gate "right"
+
+    // Incoming segment direction (approach)
+    const prevPos = gatePositions[(i - 1 + numGates) % numGates];
+    const approach = normalize(sub(pos, prevPos));
+    const dotVal = dot(normal, approach);
+    const angle = Math.acos(Math.max(-1, Math.min(1, dotVal))) * 180 / Math.PI;
+
+    // Gate ring color based on dot product
+    let gateColor = 0x4488ff;
+    if (showDotColors) {
+      if (dotVal > 0.5) gateColor = 0x44ff44;      // Good alignment
+      else if (dotVal > 0) gateColor = 0xaaff44;    // OK
+      else if (dotVal > -0.5) gateColor = 0xffaa00;  // Misaligned
+      else gateColor = 0xff4444;                      // Backwards
+    }
+
+    // Gate ring (torus oriented by gate frame)
+    if (showRings) {
+      const gateWidth = 1.5 / 2; // gate_width/2 from config
+      const torusGeo = new THREE.TorusGeometry(gateWidth, 0.06, 8, 32);
+      const torusMat = new THREE.MeshPhongMaterial({ 
+        color: gateColor, emissive: gateColor, emissiveIntensity: 0.3,
+        transparent: true, opacity: 0.8 
+      });
+      const torus = new THREE.Mesh(torusGeo, torusMat);
+      torus.position.set(pos[0], pos[1], pos[2]);
+      
+      // Orient the torus so its hole faces along the gate normal
+      // Torus default normal is Z-up, we need it to face along 'normal'
+      const torusUp = new THREE.Vector3(0, 0, 1);
+      const normalVec = new THREE.Vector3(normal[0], normal[1], normal[2]);
+      const quatRot = new THREE.Quaternion().setFromUnitVectors(torusUp, normalVec);
+      torus.quaternion.copy(quatRot);
+      
+      dynamicGroup.add(torus);
+
+      // Also draw a larger square frame to represent the gate structure
+      const frameSize = gateWidth * 1.1;
+      const frameGeo = new THREE.BufferGeometry();
+      // Gate frame corners in gate-local space (Y-up, Z-right in gate frame)
+      const corners = [
+        [-frameSize, -frameSize], [frameSize, -frameSize],
+        [frameSize, frameSize], [-frameSize, frameSize]
+      ];
+      const frameVerts = [];
+      for (let j = 0; j < 4; j++) {
+        const c1 = corners[j], c2 = corners[(j+1)%4];
+        // Transform from gate-local to world
+        for (const c of [c1, c2]) {
+          frameVerts.push(
+            pos[0] + gateY[0]*c[0] + gateZ[0]*c[1],
+            pos[1] + gateY[1]*c[0] + gateZ[1]*c[1],
+            pos[2] + gateY[2]*c[0] + gateZ[2]*c[1]
+          );
+        }
+      }
+      frameGeo.setAttribute('position', new THREE.Float32BufferAttribute(frameVerts, 3));
+      const frameMat = new THREE.LineBasicMaterial({ color: gateColor, linewidth: 2, transparent: true, opacity: 0.4 });
+      const frameLine = new THREE.LineSegments(frameGeo, frameMat);
+      dynamicGroup.add(frameLine);
+    }
+
+    // Gate center sphere
+    const centerGeo = new THREE.SphereGeometry(0.25, 12, 12);
+    const centerMat = new THREE.MeshPhongMaterial({ color: gateColor, emissive: gateColor, emissiveIntensity: 0.4 });
+    const centerMesh = new THREE.Mesh(centerGeo, centerMat);
+    centerMesh.position.set(pos[0], pos[1], pos[2]);
+    centerMesh.userData = { gateIdx: i };
+    dynamicGroup.add(centerMesh);
+
+    // Normal arrow (red — fly-through direction)
+    if (showNormals) {
+      const arrowLen = 3.0;
+      const normalEnd = [pos[0]+normal[0]*arrowLen, pos[1]+normal[1]*arrowLen, pos[2]+normal[2]*arrowLen];
+      const normalArrow = makeArrow(pos, normalEnd, 0xff4444, 0.12, true);
+      dynamicGroup.add(normalArrow);
+    }
+
+    // Approach arrow (magenta — incoming segment direction)
+    if (showApproach) {
+      const arrowLen = 2.5;
+      const approachStart = [pos[0]-approach[0]*arrowLen, pos[1]-approach[1]*arrowLen, pos[2]-approach[2]*arrowLen];
+      const approachArrow = makeArrow(approachStart, pos, 0xff44ff, 0.08, true);
+      dynamicGroup.add(approachArrow);
+    }
+
+    // Segment to next gate
+    if (showSegments) {
+      const nextPos = gatePositions[(i + 1) % numGates];
+      const segLine = makeArrow(pos, nextPos, 0x44ff44, 0.06);
+      dynamicGroup.add(segLine);
+    }
+
+    // Gate label
+    if (showLabels) {
+      const label = makeLabel(`G${i+1}`, dotVal > 0 ? '#44ff44' : '#ff4444');
+      label.position.set(pos[0], pos[1], pos[2] + 1.5);
+      labelGroup.add(label);
+    }
+
+    // Table row
+    const row = tableBody.insertRow();
+    const dotClass = dotVal > 0 ? 'dot-pos' : 'dot-neg';
+    row.innerHTML = `
+      <td>G${i+1}</td>
+      <td>(${normal[0].toFixed(2)}, ${normal[1].toFixed(2)}, ${normal[2].toFixed(2)})</td>
+      <td>(${approach[0].toFixed(2)}, ${approach[1].toFixed(2)}, ${approach[2].toFixed(2)})</td>
+      <td class="${dotClass}">${dotVal.toFixed(3)}</td>
+      <td>${angle.toFixed(1)}°</td>
+    `;
+  }
+}
+
+function makeLabel(text, color) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  div.style.cssText = `
+    color: ${color}; font-size: 14px; font-weight: bold;
+    text-shadow: 0 0 4px rgba(0,0,0,0.8);
+    pointer-events: none;
+  `;
+  return new CSS2DObject(div);
+}
+
+function makeArrow(from, to, color, radius, addCone) {
+  const group = new THREE.Group();
+  const dir = sub(to, from);
+  const len = Math.sqrt(dir[0]*dir[0] + dir[1]*dir[1] + dir[2]*dir[2]);
+  if (len < 0.01) return group;
+  
+  const mid = [(from[0]+to[0])/2, (from[1]+to[1])/2, (from[2]+to[2])/2];
+  
+  // Line
+  const lineGeo = new THREE.BufferGeometry();
+  lineGeo.setAttribute('position', new THREE.Float32BufferAttribute([...from, ...to], 3));
+  const lineMat = new THREE.LineBasicMaterial({ color, linewidth: 2 });
+  group.add(new THREE.Line(lineGeo, lineMat));
+
+  // Cylinder for thickness
+  const cylGeo = new THREE.CylinderGeometry(radius, radius, len, 6);
+  const cylMat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.2, transparent: true, opacity: 0.7 });
+  const cyl = new THREE.Mesh(cylGeo, cylMat);
+  cyl.position.set(mid[0], mid[1], mid[2]);
+  const dirNorm = normalize(dir);
+  const up = new THREE.Vector3(0, 1, 0);
+  const dirVec = new THREE.Vector3(dirNorm[0], dirNorm[1], dirNorm[2]);
+  const quat = new THREE.Quaternion().setFromUnitVectors(up, dirVec);
+  cyl.quaternion.copy(quat);
+  group.add(cyl);
+
+  // Cone arrowhead
+  if (addCone) {
+    const coneLen = Math.min(0.6, len * 0.2);
+    const coneGeo = new THREE.ConeGeometry(radius * 3, coneLen, 8);
+    const coneMat = new THREE.MeshPhongMaterial({ color, emissive: color, emissiveIntensity: 0.3 });
+    const cone = new THREE.Mesh(coneGeo, coneMat);
+    cone.position.set(to[0], to[1], to[2]);
+    cone.quaternion.copy(quat);
+    group.add(cone);
+  }
+
+  return group;
+}
+
+// ── Event handlers ──────────────────────────────────────────
+
+function getActiveQuats() {
+  return document.getElementById('quat-source').value === 'alphapilot' ? alphapilotQuats : currentQuats;
+}
+
+function rebuild() { buildScene(getActiveQuats()); }
+
+document.getElementById('quat-source').addEventListener('change', rebuild);
+document.getElementById('show-normals').addEventListener('change', rebuild);
+document.getElementById('show-segments').addEventListener('change', rebuild);
+document.getElementById('show-rings').addEventListener('change', rebuild);
+document.getElementById('show-approach').addEventListener('change', rebuild);
+document.getElementById('show-labels').addEventListener('change', rebuild);
+document.getElementById('show-dot-colors').addEventListener('change', rebuild);
+
+document.getElementById('btn-top').addEventListener('click', () => {
+  camera.position.set(0, 0, 80); controls.target.set(0, 0, 0); controls.update();
+});
+document.getElementById('btn-side').addEventListener('click', () => {
+  camera.position.set(0, -80, 5); controls.target.set(0, 0, 3); controls.update();
+});
+document.getElementById('btn-3d').addEventListener('click', () => {
+  camera.position.set(30, -60, 40); controls.target.set(0, 0, 3); controls.update();
+});
+document.getElementById('btn-reset').addEventListener('click', () => {
+  camera.position.set(30, -60, 40); controls.target.set(0, 0, 3); controls.update();
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ── Animation loop ──────────────────────────────────────────
+
+buildScene(currentQuats);
+
+function animate() {
+  requestAnimationFrame(animate);
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+animate();
+
+</script>
+</body>
+</html>

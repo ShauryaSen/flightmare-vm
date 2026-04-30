@@ -1,1 +1,1 @@
-/usr/bin/c++ -O3 -DNDEBUG "CMakeFiles/yaml-cpp-parse.dir/parse.cpp.o" -o parse  ../libyaml-cpp.a 
+/usr/bin/c++ -DVERSION_INFO=\"0.0.1\" -O3 -DNDEBUG "CMakeFiles/yaml-cpp-parse.dir/parse.cpp.o" -o parse  ../libyaml-cpp.a 

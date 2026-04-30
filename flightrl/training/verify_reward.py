@@ -138,10 +138,12 @@ def verify_progress_math(env, n_steps=50):
         gates.append(np.array(p, dtype=np.float64))
     num_gates = len(gates)
     delta_max = cfg["rl"]["delta_max"]
+    start_pos = np.array(cfg["start_pos"], dtype=np.float64)
 
     def segment_progress_py(pos, target_gate_idx):
         """Python replica of C++ segment_progress"""
-        g1 = gates[(target_gate_idx - 1 + num_gates) % num_gates]
+        # Segment 0 uses start_pos as origin (track is not circular)
+        g1 = start_pos if target_gate_idx == 0 else gates[(target_gate_idx - 1 + num_gates) % num_gates]
         g2 = gates[target_gate_idx]
         seg = g2 - g1
         seg_len = np.linalg.norm(seg)

@@ -1,0 +1,56 @@
+# ─────────────────────────────────────────────────────────────────
+# Minimal Straight-Line Test Track for Analytical Verification
+#
+# 3 gates on the X-axis at z=5, spaced 20m apart.
+# All gates face +X (identity quaternion → normal = [1,0,0]).
+# Start position at origin-ish (0, 0, 5).
+#
+# Segment 0: (0,0,5) → (20,0,5)  length = 20m
+# Segment 1: (20,0,5) → (40,0,5) length = 20m
+# Segment 2: (40,0,5) → (60,0,5) length = 20m
+# ─────────────────────────────────────────────────────────────────
+
+quadrotor_env:
+   camera: no
+   sim_dt: 0.02
+   max_t: 30.0
+   add_camera: no
+
+quadrotor_dynamics:
+  mass: 0.73
+  arm_l: 0.17
+  motor_omega_min: 150.0
+  motor_omega_max: 3000.0
+  motor_tau: 0.0001
+  thrust_map: [1.3298253500372892e-06, 0.0038360810526746033, -1.7689986848125325]
+  kappa: 0.016
+  omega_max: [6.0, 6.0, 6.0]
+
+# ─── Start Position ───────────────────────────────────────
+start_pos: [0.0, 0.0, 5.0]
+
+# ─── Gate Course: Straight Line ───────────────────────────
+# All gates have identity rotation → normal = [1, 0, 0] (faces +X)
+gates:
+  - position: [20.0, 0.0, 5.0]
+    rotation_quat: [1.0, 0.0, 0.0, 0.0]
+  - position: [40.0, 0.0, 5.0]
+    rotation_quat: [1.0, 0.0, 0.0, 0.0]
+  - position: [60.0, 0.0, 5.0]
+    rotation_quat: [1.0, 0.0, 0.0, 0.0]
+
+# ─── RL Reward Config ─────────────────────────────────────
+rl:
+  act_coeff: 0.0
+  delta_max: 0.5
+  gate_bonus: 10.0
+  survival_bonus: 0.1
+  crash_penalty: -5.0
+  gate_radius: 1.0
+  body_rate_coeff: 0.0
+  body_rate_anneal_steps: 0
+  gate_width: 1.5
+  safety_coeff: 0.0
+  safety_d_max: 1.5
+  traj_init_threshold: 0.3
+  traj_init_fraction: 0.5

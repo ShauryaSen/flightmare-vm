@@ -74,19 +74,45 @@ SIM_DT = 0.02               # physics timestep from config
 
 # ── Environment + config ────────────────────────────────────────
 
+def quat_to_R(w, x, y, z):
+    """Quaternion to rotation matrix (matches C++ convention)."""
+    n = np.sqrt(w**2 + x**2 + y**2 + z**2)
+    w, x, y, z = w/n, x/n, y/n, z/n
+    return np.array([
+        [1-2*(y*y+z*z), 2*(x*y-w*z), 2*(x*z+w*y)],
+        [2*(x*y+w*z), 1-2*(x*x+z*z), 2*(y*z-w*x)],
+        [2*(x*z-w*y), 2*(y*z+w*x), 1-2*(x*x+y*y)]
+    ])
+
+
 def load_config(config_path: str):
-    """Load gate positions and start position from the YAML config."""
+    """Load gate positions, normals, and start position from the YAML config."""
     yaml = ruamel.yaml.YAML()
     with open(config_path) as f:
         cfg = yaml.load(f)
     gates = []
+    gate_normals = []
     for g in cfg.get("gates", []):
         gates.append(g["position"])
+        if "rotation_quat" in g:
+            q = g["rotation_quat"]
+            R = quat_to_R(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
+            normal = R[:, 0]  # R * [1,0,0] — gate fly-through direction
+            normal = normal / np.linalg.norm(normal)
+        else:
+            normal = np.array([1.0, 0.0, 0.0])
+        gate_normals.append(normal)
     gates = np.array(gates, dtype=np.float32)
+    gate_normals = np.array(gate_normals, dtype=np.float32)
 
     start_pos = np.array(cfg.get("start_pos", [0.0, 0.0, 2.0]),
                          dtype=np.float32)
-    return gates, start_pos
+
+    gate_width = 3.0  # default
+    if "rl" in cfg and "gate_width" in cfg["rl"]:
+        gate_width = float(cfg["rl"]["gate_width"])
+
+    return gates, gate_normals, gate_width, start_pos
 
 
 def make_env(vecnorm_path: str = None):
@@ -213,6 +239,9 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
 
 def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
                          gates: np.ndarray,
+                         gate_normals: np.ndarray,
+                         gate_width: float,
+                         start_pos: np.ndarray,
                          out_path: str,
                          title: str = "Policy Trajectories",
                          top_n: int = None):
@@ -244,17 +273,49 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
         # Mark end (crash/timeout)
         ax.scatter(*pos[-1], color=colors[idx], marker="x", s=40, alpha=0.8)
 
-    # Draw gates as rings
+    # Draw gates with normals, segment directions, and openings
     for i, g in enumerate(gates):
+        # Gate opening ring perpendicular to the gate normal
+        normal = gate_normals[i]
+        # Build a frame perpendicular to the normal
+        up = np.array([0, 0, 1.0])
+        if abs(np.dot(normal, up)) > 0.95:
+            up = np.array([0, 1.0, 0])
+        perp1 = np.cross(normal, up)
+        perp1 = perp1 / np.linalg.norm(perp1)
+        perp2 = np.cross(normal, perp1)
+        perp2 = perp2 / np.linalg.norm(perp2)
         theta = np.linspace(0, 2 * np.pi, 50)
-        r = 1.0  # gate_radius from config
-        gx = g[0] + r * np.cos(theta)
-        gy = g[1] + r * np.sin(theta)
-        gz = np.full_like(theta, g[2])
+        r = gate_width / 2  # gate opening radius
+        gx = g[0] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 0]
+        gy = g[1] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 1]
+        gz = g[2] + r * (np.cos(theta)[:, None] * perp1 + np.sin(theta)[:, None] * perp2)[:, 2]
         ax.plot(gx, gy, gz, "b-", linewidth=2.5, alpha=0.8)
         ax.scatter(*g, color="blue", s=100, marker="D", zorder=5)
-        ax.text(g[0], g[1], g[2] + 0.5, f"G{i}", fontsize=10,
-                ha="center", color="blue", fontweight="bold")
+
+        # Gate NORMAL arrow (RED) — fly-through direction
+        arrow_len = 3.0
+        ax.quiver(g[0], g[1], g[2],
+                  normal[0]*arrow_len, normal[1]*arrow_len, normal[2]*arrow_len,
+                  color='red', linewidth=2.5, arrow_length_ratio=0.15)
+
+        # SEGMENT direction arrow (CYAN) — approach from previous gate
+        if i == 0:
+            g_prev = start_pos
+        else:
+            g_prev = gates[i - 1]
+        seg_dir = g - g_prev
+        seg_dir = seg_dir / np.linalg.norm(seg_dir)
+        ax.quiver(g[0], g[1], g[2],
+                  seg_dir[0]*arrow_len*0.7, seg_dir[1]*arrow_len*0.7, seg_dir[2]*arrow_len*0.7,
+                  color='cyan', linewidth=1.8, arrow_length_ratio=0.12, alpha=0.7)
+
+        # Angle between normal and segment
+        dot_val = np.dot(normal, seg_dir)
+        angle = np.degrees(np.arccos(np.clip(abs(dot_val), 0, 1)))
+        color = 'lime' if angle < 20 else ('yellow' if angle < 45 else 'red')
+        ax.text(g[0], g[1], g[2] + 0.8, f"G{i} ({angle:.0f}°)", fontsize=9,
+                ha="center", color=color, fontweight="bold")
 
     ax.set_xlabel("X (m)", fontsize=11)
     ax.set_ylabel("Y (m)", fontsize=11)
@@ -280,6 +341,9 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
 
 def plot_topdown(episodes: List[EpisodeTrajectory],
                  gates: np.ndarray,
+                 gate_normals: np.ndarray,
+                 gate_width: float,
+                 start_pos: np.ndarray,
                  out_path: str,
                  title: str = "Top-Down View"):
     """Plot XY (top-down) and XZ (side) views."""
@@ -305,15 +369,50 @@ def plot_topdown(episodes: List[EpisodeTrajectory],
             ax.scatter(pos[-1, dim_a], pos[-1, dim_b],
                        color=color, marker="x", s=25, alpha=0.7, zorder=3)
 
-        # Gates
+        # Gates with normals and openings
         for i, g in enumerate(gates):
-            circle = plt.Circle((g[dim_a], g[dim_b]), 1.0,
-                                fill=False, color="blue", linewidth=2)
-            ax.add_patch(circle)
-            ax.plot(g[dim_a], g[dim_b], "bD", markersize=8)
-            ax.annotate(f"G{i}", (g[dim_a], g[dim_b]),
+            normal = gate_normals[i]
+            # Gate opening bar (perpendicular to normal, projected)
+            gate_perp_2d = np.array([-normal[dim_b], normal[dim_a]])
+            if np.linalg.norm(gate_perp_2d) > 1e-6:
+                gate_perp_2d = gate_perp_2d / np.linalg.norm(gate_perp_2d)
+            hw = gate_width / 2
+            p1 = np.array([g[dim_a], g[dim_b]]) + gate_perp_2d * hw
+            p2 = np.array([g[dim_a], g[dim_b]]) - gate_perp_2d * hw
+            ax.plot([p1[0], p2[0]], [p1[1], p2[1]], '-',
+                    color='blue', linewidth=3, alpha=0.8, zorder=4)
+            ax.plot(g[dim_a], g[dim_b], "bD", markersize=8, zorder=5)
+
+            # Gate NORMAL arrow (RED)
+            arrow_len = 3.0
+            ax.annotate('', xy=(g[dim_a] + normal[dim_a]*arrow_len,
+                                g[dim_b] + normal[dim_b]*arrow_len),
+                        xytext=(g[dim_a], g[dim_b]),
+                        arrowprops=dict(arrowstyle='->', color='red',
+                                       lw=2.0, mutation_scale=15), zorder=6)
+
+            # SEGMENT direction arrow (CYAN)
+            if i == 0:
+                g_prev_pos = start_pos
+            else:
+                g_prev_pos = gates[i - 1]
+            seg_dir = g - g_prev_pos
+            seg_norm = np.linalg.norm(seg_dir)
+            if seg_norm > 1e-6:
+                seg_dir = seg_dir / seg_norm
+            ax.annotate('', xy=(g[dim_a] + seg_dir[dim_a]*arrow_len*0.7,
+                                g[dim_b] + seg_dir[dim_b]*arrow_len*0.7),
+                        xytext=(g[dim_a], g[dim_b]),
+                        arrowprops=dict(arrowstyle='->', color='cyan',
+                                       lw=1.5, mutation_scale=12, alpha=0.7), zorder=5)
+
+            # Angle label
+            dot_val = np.dot(normal[:3], seg_dir[:3])
+            angle = np.degrees(np.arccos(np.clip(abs(dot_val), 0, 1)))
+            label_color = 'lime' if angle < 20 else ('yellow' if angle < 45 else 'red')
+            ax.annotate(f"G{i} ({angle:.0f}°)", (g[dim_a], g[dim_b]),
                         textcoords="offset points", xytext=(8, 8),
-                        fontsize=9, color="blue", fontweight="bold")
+                        fontsize=8, color=label_color, fontweight="bold")
 
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
@@ -329,6 +428,7 @@ def plot_topdown(episodes: List[EpisodeTrajectory],
 
 
 def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
+                        gate_normals: np.ndarray, gate_width: float,
                         out_path: str, title: str = "Episode Detail"):
     """Detailed multi-panel view of a single episode."""
     fig = plt.figure(figsize=(18, 10))
@@ -347,9 +447,25 @@ def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
     ax3d.scatter(*pos[0], color="green", s=80, marker="o", label="Start")
     ax3d.scatter(*pos[-1], color="red", s=80, marker="x", label="End")
     for i, g in enumerate(gates):
-        theta = np.linspace(0, 2 * np.pi, 40)
-        ax3d.plot(g[0] + np.cos(theta), g[1] + np.sin(theta),
-                  np.full(40, g[2]), "b-", linewidth=2, alpha=0.7)
+        normal = gate_normals[i]
+        # Gate opening perpendicular to normal
+        up = np.array([0, 0, 1.0])
+        if abs(np.dot(normal, up)) > 0.95:
+            up = np.array([0, 1.0, 0])
+        perp1 = np.cross(normal, up)
+        perp1 = perp1 / np.linalg.norm(perp1)
+        perp2 = np.cross(normal, perp1)
+        perp2 = perp2 / np.linalg.norm(perp2)
+        theta_ring = np.linspace(0, 2 * np.pi, 40)
+        hw = gate_width / 2
+        rx = g[0] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 0]
+        ry = g[1] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 1]
+        rz = g[2] + hw * (np.cos(theta_ring)[:, None] * perp1 + np.sin(theta_ring)[:, None] * perp2)[:, 2]
+        ax3d.plot(rx, ry, rz, "b-", linewidth=2, alpha=0.7)
+        # Normal arrow
+        ax3d.quiver(g[0], g[1], g[2],
+                    normal[0]*2, normal[1]*2, normal[2]*2,
+                    color='red', linewidth=2, arrow_length_ratio=0.2)
         ax3d.text(g[0], g[1], g[2] + 0.5, f"G{i}", color="blue",
                   fontsize=9, ha="center")
     ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
@@ -569,9 +685,10 @@ def main():
                                      os.path.expanduser("~/flightmare"))
     config_path = os.path.join(flightmare_path,
                                "flightlib/configs/quadrotor_env.yaml")
-    gates, start_pos = load_config(config_path)
+    gates, gate_normals, gate_width, start_pos = load_config(config_path)
     print(f"Loaded {len(gates)} gates from config")
     print(f"Start position: {start_pos}")
+    print(f"Gate width: {gate_width}m (opening radius: {gate_width/2}m)")
 
     # Create environment with VecNormalize for proper model inference
     env, raw_env = make_env(vecnorm_path=args.vecnorm)
@@ -601,14 +718,14 @@ def main():
 
     # 1. 3D trajectory overlay
     plot_3d_trajectories(
-        episodes, gates,
+        episodes, gates, gate_normals, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_3d_trajectories.png"),
         title=f"3D Trajectories — {model_name}",
     )
 
     # 2. Top-down + side view
     plot_topdown(
-        episodes, gates,
+        episodes, gates, gate_normals, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_topdown.png"),
         title=f"Trajectory Views — {model_name}",
     )
@@ -616,12 +733,12 @@ def main():
     # 3. Detailed view of best and worst episodes
     sorted_eps = sorted(episodes, key=lambda e: e.total_reward, reverse=True)
     plot_episode_detail(
-        sorted_eps[0], gates,
+        sorted_eps[0], gates, gate_normals, gate_width,
         out_path=str(out_dir / f"{model_name}_best_episode.png"),
         title=f"Best Episode (R={sorted_eps[0].total_reward:.1f}) — {model_name}",
     )
     plot_episode_detail(
-        sorted_eps[-1], gates,
+        sorted_eps[-1], gates, gate_normals, gate_width,
         out_path=str(out_dir / f"{model_name}_worst_episode.png"),
         title=f"Worst Episode (R={sorted_eps[-1].total_reward:.1f}) — {model_name}",
     )

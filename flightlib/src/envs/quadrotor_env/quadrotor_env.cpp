@@ -101,7 +101,9 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
       current_gate_idx_ = seg_idx;
 
       // Midpoint of segment (from previous gate to this gate)
-      Vector<3> g_prev = gates_[(seg_idx - 1 + num_gates_) % num_gates_];
+      // Segment 0 uses start_pos_ as origin (track is not circular)
+      Vector<3> g_prev = (seg_idx == 0) ? start_pos_ :
+                          gates_[(seg_idx - 1 + num_gates_) % num_gates_];
       Vector<3> g_curr = gates_[seg_idx];
       // Random interpolation along segment with lateral offset
       Scalar t = Scalar(0.2) + Scalar(uniform_dist_(random_gen_)) * Scalar(0.3) + Scalar(0.25);
@@ -307,7 +309,9 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
 
     // 3. Gate Pass / Collision Detection
     // Plane crossing: s_prev < seg_len AND s_curr >= seg_len
-    Vector<3> g_prev = gates_[(current_gate_idx_ - 1 + num_gates_) % num_gates_];
+    // Segment 0 uses start_pos_ as origin (track is not circular)
+    Vector<3> g_prev = (current_gate_idx_ == 0) ? start_pos_ :
+                        gates_[(current_gate_idx_ - 1 + num_gates_) % num_gates_];
     Scalar seg_len = (g_curr - g_prev).norm();
 
     if (s_prev_ < seg_len && s_curr >= seg_len) {
@@ -327,7 +331,7 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
         // Paper Eq. 5: Distance-dependent terminal penalty
         Scalar d_g = (quad_state_.p - g_curr).norm();
         Scalar d_g_norm = d_g / gate_width_;
-        terminal_reward_ = -std::min(d_g_norm * d_g_norm, Scalar(20.0));
+        terminal_reward_ = -std::min(d_g_norm * d_g_norm, Scalar(20.0));//-10;
       }
     } else {
       s_prev_ = s_curr;
@@ -496,15 +500,17 @@ bool QuadrotorEnv::getAct(Command *const cmd) const {
 }
 
 Scalar QuadrotorEnv::segment_progress(const Vector<3>& pos, int target_gate_idx) {
-  Vector<3> g1 = gates_[(target_gate_idx - 1 + num_gates_) % num_gates_];
+  // Segment 0 uses start_pos_ as origin (track is not circular;
+  // start_pos is far from gate N, so G_N→G_1 wraps around the entire track).
+  Vector<3> g1 = (target_gate_idx == 0) ? start_pos_ :
+                  gates_[(target_gate_idx - 1 + num_gates_) % num_gates_];
   Vector<3> g2 = gates_[target_gate_idx];
   Vector<3> seg = g2 - g1;
   Scalar seg_len = seg.norm();
   if (seg_len < 1e-6) return 0.0;
   Scalar raw = (pos - g1).dot(seg) / seg_len;
-  // Clamp to [0, seg_len] — drone cannot earn progress beyond the gate
-  // plane or behind the segment start. This prevents reward exploitation
-  // by flying far away in the general gate direction.
+  // Clamp to [0, seg_len + margin] — drone cannot earn progress beyond
+  // the gate plane or behind the segment start.
   return std::max(Scalar(0.0), std::min(raw, seg_len + Scalar(0.5)));
 }
 
