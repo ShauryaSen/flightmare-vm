@@ -61,18 +61,18 @@ gates:
   - 0.011581198096193812
   - -0.012742889663570194
   - 0.6724698255026628
-- position: [16.75, 39.57, 6.76]
+- position: [15.81, 18.49, 4.87]
   rotation_quat:
-  - 0.022906483518157276
-  - -0.1255883639366623
-  - 0.0029005323769229828
-  - 0.9918137137428961
-- position: [2.33, 27.87, 2.55]
+  - 0.4178
+  - -0.0773
+  - 0.0357
+  - 0.9046
+- position: [6.28, 23.18, 3.43]
   rotation_quat:
-  - 0.5594275686384754
-  - 0.0620016701095499
-  - 0.042018088106603874
-  - -0.8254883818823473
+  - 0.0894
+  - 0.0848
+  - 0.0076
+  - -0.9924
 - position: [2.20, 9.00, 1.99]
   rotation_quat:
   - 0.6767607538136899
@@ -131,7 +131,8 @@ rl:
   gate_width: 5            # w_g — increased for easier learning (was 3)
   safety_coeff: 0.0          # a in paper Eq. 4 — disabled until base policy works
   safety_d_max: 1.5          # d_max for safety reward activation (meters)
-  traj_init_threshold: 0.6   # gate-pass rate to switch to Phase 2 init
+  traj_init_threshold: 0.6   # mean gates/episode required to switch to Phase 2 (NOT a probability)
   traj_init_fraction: 0.5    # fraction of Phase 2 resets from traj buffer
+  traj_init_min_episodes: 200  # per-env episode floor before Phase 2 is considered
   spline_deviation_ratio: 1.5  # progress penalty per meter of lateral deviation from spline
   deviation_penalty_coeff: 0.01  # per-step quadratic penalty for dev > gate_width/2

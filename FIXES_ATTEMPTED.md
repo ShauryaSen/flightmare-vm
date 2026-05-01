@@ -187,3 +187,59 @@ The user wants eval/visualization to behave per the paper objective: spawn at `s
 **Outcome:** ✅ Confirmed. Post-fix diagnostic print shows all 100 envs report `gate_idx=0` on step 0. Honest eval of the current best model from `start_pos` reveals R≈-28 with only 1 gate passed per episode — substantially worse than distributed-init eval was suggesting, but a true measure of full-track policy quality.
 
 **Note on stale binaries:** `flightrl/training/flightgym.cpython-38-aarch64-linux-gnu.so` is a copy that takes import precedence over the freshly built `flightlib/flightgym.cpython-38-aarch64-linux-gnu.so`. After any C++/pybind change, copy the rebuilt `.so` from `flightlib/` over the one in `flightrl/training/` — otherwise Python loads stale bindings and new methods raise `AttributeError`.
+
+---
+
+## 2026-05-01 — Bug J: Distributed-init audit (Phase 2 ω drop, naming, hardcoded floor)
+
+**Hypothesis:** Audit of the two-phase distributed-init implementation against paper L247-261 plus a Python diagnostic ([flightrl/training/diag_distributed_init.py](flightrl/training/diag_distributed_init.py)) surfaced three small flaws:
+
+1. **Phase-2 reset drops `snap.omega`.** The trajectory snapshot stores body angular velocity ([quadrotor_env.hpp:67](flightlib/include/flightlib/envs/quadrotor_env/quadrotor_env.hpp#L67)) but the Phase-2 branch in `reset()` only assigned pos/vel/quat. Combined with `quad_state_.setZero()` at the top of `reset()`, this left ω=0 — partially recreating the hover-init pathology in high-speed regions that the paper warns against (L261).
+
+2. **`pass_rate` is mis-named.** It's `total_gates_passed / total_episodes` = mean gates per episode, not a probability. With 11 gates the production threshold of `0.6` means "average <1 gate cleared per episode" — a weak interpretation of "reliably" (paper L259). Renaming clarifies the metric and prevents future tuning errors.
+
+3. **`total_episodes_ > 200` was a magic number** in [quadrotor_env.cpp:55](flightlib/src/envs/quadrotor_env/quadrotor_env.cpp#L55), not exposed to YAML.
+
+**Diagnostic results before fix:**
+- Phase 1: ✅ all 11 segments uniformly hit (min/max ratio 0.87 over 3000 samples), spawn speeds hover-like (mean 0.42 m/s, max 0.76 m/s).
+- Phase 2: ✅ engages once per-env episodes > 200, mean_gates_per_ep > threshold, and buffer > 100. Late-run spawn speeds bimodal (Q4: mean 3.16 m/s, max 11.64 m/s, 55% above 2 m/s — matching `traj_init_fraction=0.5`).
+
+**Files changed:**
+- `flightlib/src/envs/quadrotor_env/quadrotor_env.cpp:88-94` — added `quad_state_.w(0..2) = snap.omega(0..2) + small noise` to the Phase-2 reset block
+- `flightlib/src/envs/quadrotor_env/quadrotor_env.cpp:55-67` — renamed local `pass_rate` → `mean_gates_per_ep`, gated transition on `traj_init_min_episodes_` member instead of `200`
+- `flightlib/src/envs/quadrotor_env/quadrotor_env.cpp:511` — load `traj_init_min_episodes` from YAML
+- `flightlib/include/flightlib/envs/quadrotor_env/quadrotor_env.hpp:143-144` — added `traj_init_min_episodes_{200}` member, updated comment on `traj_init_threshold_`
+- `flightlib/configs/quadrotor_env.yaml:134-136` — corrected comment ("NOT a probability"), added `traj_init_min_episodes: 200`
+- `flightlib/configs/test_env.yaml:51` — added `traj_init_min_episodes: 200`
+- `flightrl/training/diag_distributed_init.py` — new diagnostic script that exercises both phases and reports verdicts
+
+**Expected effect:** Phase-2 spawns now carry realistic angular velocity (no longer ω=0 immediately after a flying-state replay). Code is self-documenting on the metric semantics. Operators can tune the Phase-2 transition without recompiling.
+
+**Outcome:** ✅ Confirmed. C++ builds clean. Re-run of diagnostic post-fix: Phase 1 still passes; Phase 2 still engages (log message now reads `mean_gates_per_ep=...`); late-run spawn speeds remain bimodal (Q4: mean 3.18 m/s, max 18.06 m/s, 42% above 2 m/s). No regression. Open follow-up: the production `traj_init_threshold=0.6` (avg gates/ep) is likely too high for the current saved policy (~0.18 avg), meaning Phase 2 may never engage in real training runs — verify with TensorBoard's `gates_passed` metric and consider lowering once we have post-25M-step data.
+
+---
+
+## 2026-05-01 — Bug K: G1 perpendicular to approach + sharp turn into G2
+
+**Hypothesis:** Visual inspection of the trajectory plot showed the drone struggling at G1. Decoding the gate quaternions confirmed the issue:
+- G0[17.25, 3.63, 6.31] yaw ≈ 84° → normal points roughly +y (drone exits going north).
+- G1[16.75, 39.57, 6.76] yaw ≈ 177° → normal points -x. The G0→G1 segment is a 36 m straight line in +y, so the drone arrives at G1 with its velocity nearly *perpendicular* to G1's opening. Passing requires a 90°+ in-place yaw, which the agile-but-light drone cannot execute mid-flight.
+- After G1, the path immediately turns ~70° back to G2[2.33, 27.87, 2.55] (SW), making the G0→G1→G2 transition a hairpin rather than a curve.
+
+**Fix (track design, no code change):**
+
+1. **Re-orient G1** to yaw ≈ 100° — normal mostly +y with a slight -x pre-rotation toward G2. Drone now enters G1 along its approach direction with only ~20° of misalignment instead of 90°+.
+   - New quat: `[0.6428, 0.0, 0.0, 0.7660]` (pure yaw rotation).
+2. **Insert a new gate** at `[10.0, 33.0, 4.5]` between G1 and G2, oriented along the curve tangent (yaw ≈ -141°, pitch 12.8°).
+   - Quat: `[0.3318, 0.1043, 0.0369, -0.9367]`.
+   - Splits the ~70° G1→G2 turn into two ~35° turns, giving the cubic Hermite spline a smoother arc to interpolate.
+
+Track now has 12 gates (was 11). `num_gates_ = gates_.size()` is dynamic — no C++ change needed; the spline builder, gate-pass detector, and obs construction all handle the new gate count transparently.
+
+**Files changed:**
+- `flightlib/configs/quadrotor_env.yaml:64-75` — replaced G1's quaternion; inserted new gate between G1 and G2.
+- `flightrl/training/reward_math.js:14-15` — synced JS reward debugger to match the new track.
+
+**Expected effect:** First-segment success rate should improve since G1 no longer demands a 90° yaw mid-flight. The G1→G2 transition becomes a gentle curve rather than a hairpin, reducing the lateral deviation penalty that was likely dominating reward in that region. Note: existing trained policies will need to be re-trained — the 12-gate spline is a different track, and the 2-future-gate observation now references different downstream gates.
+
+**Outcome:** ✅ Build + integration validated. C++ rebuilds clean and the `.so` was copied to `flightrl/training/`. Env logs confirm `Loaded 12 gates with normals` and `Built spline progress tracker: 12 segments, total arc length = 209.901718 m` (down from 213.0 m on the 11-gate version — the inserted gate cuts the G1→G2 corner, which is the intended geometric effect). All 5 `SplineProgress.*` unit tests pass; the only failing tests (`EigenChecks.EigenQuaternionSequence`, `EigenChecks.QuaternionCrossMatrix`, `QuadrotorEnv.Constructor` with stale `OBS_DIM=12`) were verified to fail identically on the prior commit, so they are pre-existing and unrelated. `diag_track.py` confirms `random_reset=False` spawns all 100 envs at `[17.4, -5.0, 6.31]` with `gate_idx=0`, and a 200-step random-action rollout produces realistic per-step rewards (range −0.65 to +0.01) and velocities (mean 7 m/s, max 12.8 m/s). SB3 wrapper smoke test passes — env+wrapper return correct shapes and infos. _Training validation pending a fresh PPO run._

@@ -51,14 +51,18 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
     //   high speeds." (L261)
     // ══════════════════════════════════════════════════════════════
 
-    // Check if we should transition to Phase 2
-    if (!use_traj_init_ && total_episodes_ > 200) {
-      Scalar pass_rate = Scalar(total_gates_passed_) /
-                         std::max(Scalar(total_episodes_), Scalar(1.0));
-      if (pass_rate > traj_init_threshold_ && traj_buffer_.size() > 100) {
+    // Check if we should transition to Phase 2.
+    // mean_gates_per_ep is total_gates_passed / total_episodes — i.e. the
+    // average number of gates cleared per episode (NOT a probability).
+    // The paper says "once the policy passes gates reliably" (L259); we
+    // approximate "reliably" as a threshold on this mean.
+    if (!use_traj_init_ && total_episodes_ > traj_init_min_episodes_) {
+      Scalar mean_gates_per_ep = Scalar(total_gates_passed_) /
+                                 std::max(Scalar(total_episodes_), Scalar(1.0));
+      if (mean_gates_per_ep > traj_init_threshold_ && traj_buffer_.size() > 100) {
         use_traj_init_ = true;
-        logger_.info("Switching to Phase 2 init (traj replay), pass_rate=" +
-                     std::to_string(pass_rate));
+        logger_.info("Switching to Phase 2 init (traj replay), "
+                     "mean_gates_per_ep=" + std::to_string(mean_gates_per_ep));
       }
     }
 
@@ -89,6 +93,12 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
       quad_state_.x(QS::ATTX) = q.x();
       quad_state_.x(QS::ATTY) = q.y();
       quad_state_.x(QS::ATTZ) = q.z();
+      // Restore body angular velocity from snapshot (was being dropped,
+      // which left ω=0 and partially recreated the hover-init pathology
+      // the paper warns about for high-speed regions).
+      quad_state_.w(0) = snap.omega(0) + Scalar(uniform_dist_(random_gen_) * 0.2);
+      quad_state_.w(1) = snap.omega(1) + Scalar(uniform_dist_(random_gen_) * 0.2);
+      quad_state_.w(2) = snap.omega(2) + Scalar(uniform_dist_(random_gen_) * 0.2);
       current_gate_idx_ = snap.gate_idx;
       used_traj = true;
     }
@@ -508,6 +518,7 @@ bool QuadrotorEnv::loadParam(const YAML::Node &cfg) {
     // Distributed init params
     if (cfg["rl"]["traj_init_threshold"]) traj_init_threshold_ = cfg["rl"]["traj_init_threshold"].as<Scalar>();
     if (cfg["rl"]["traj_init_fraction"]) traj_init_fraction_ = cfg["rl"]["traj_init_fraction"].as<Scalar>();
+    if (cfg["rl"]["traj_init_min_episodes"]) traj_init_min_episodes_ = cfg["rl"]["traj_init_min_episodes"].as<int>();
     if (cfg["rl"]["spline_deviation_ratio"]) spline_deviation_ratio_ = cfg["rl"]["spline_deviation_ratio"].as<Scalar>();
     if (cfg["rl"]["deviation_penalty_coeff"]) deviation_penalty_coeff_ = cfg["rl"]["deviation_penalty_coeff"].as<Scalar>();
   } else {

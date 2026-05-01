@@ -1,0 +1,21 @@
+{
+  "run_dir": "/home/ssen/flightmare/flightrl/training/sweep/runs/00_baseline",
+  "total_timesteps": 200000,
+  "train_seconds": 24.834463596343994,
+  "fps": 8053.324736574661,
+  "ent_coef": 0.01,
+  "learning_rate": 0.0003,
+  "seed": 42,
+  "train_error": null,
+  "final_ep_rew_mean": -12.214464730206528,
+  "final_ep_len_mean": 48.6,
+  "final_ep_max_gate_mean": 5.3,
+  "best_ep_rew_mean": -12.116226525711827,
+  "slope_last_2M": 24.81261374518738,
+  "eval_completed": 10,
+  "eval_mean_reward": -9.759476603412622,
+  "eval_mean_length": 152.0,
+  "eval_mean_max_gate": 0.0,
+  "eval_max_gate_idx": 0.0,
+  "eval_lap_completed": false
+}

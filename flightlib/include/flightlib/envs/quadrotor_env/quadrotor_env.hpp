@@ -140,7 +140,8 @@ class QuadrotorEnv final : public EnvBase {
   int gates_passed_this_ep_{0};      // gates passed in current episode
   int total_episodes_{0};            // total episodes completed
   int total_gates_passed_{0};        // cumulative gates passed
-  Scalar traj_init_threshold_{0.3};  // pass rate at which we switch to Phase 2
+  Scalar traj_init_threshold_{0.3};  // mean gates/episode required to switch to Phase 2
+  int traj_init_min_episodes_{200};  // per-env episode floor before transition is even considered
   bool use_traj_init_{false};        // are we in Phase 2?
   Scalar traj_init_fraction_{0.5};   // fraction of resets using traj buffer in Phase 2
   long total_steps_{0};              // cumulative steps across all episodes
