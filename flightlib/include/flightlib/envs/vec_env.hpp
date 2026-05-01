@@ -38,6 +38,11 @@ class VecEnv {
 
   // public set functions
   void setSeed(const int seed);
+  // When false, all resets (explicit and post-done autoreset) place the drone
+  // at start_pos with current_gate_idx_=0. Default true preserves training's
+  // distributed init across track segments.
+  inline void setRandomReset(const bool random) { random_reset_ = random; };
+  inline bool getRandomReset(void) { return random_reset_; };
 
   // public get functions
   void getObs(Ref<MatrixRowMajor<>> obs);
@@ -92,6 +97,7 @@ class VecEnv {
 
   // auxiliar variables
   int seed_, num_envs_, obs_dim_, act_dim_;
+  bool random_reset_{true};
   Matrix<> obs_dummy_;
 
   // yaml configurations

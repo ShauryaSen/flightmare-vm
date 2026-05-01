@@ -71,7 +71,7 @@ bool VecEnv<EnvBase>::reset(Ref<MatrixRowMajor<>> obs) {
 
   receive_id_ = 0;
   for (int i = 0; i < num_envs_; i++) {
-    envs_[i]->reset(obs.row(i));
+    envs_[i]->reset(obs.row(i), random_reset_);
   }
   return true;
 }
@@ -157,7 +157,7 @@ void VecEnv<EnvBase>::perAgentStep(int agent_id, Ref<MatrixRowMajor<>> act,
       envs_[agent_id]->extra_info_[extra_info_names_[j]];
 
   if (done[agent_id]) {
-    envs_[agent_id]->reset(obs.row(agent_id));
+    envs_[agent_id]->reset(obs.row(agent_id), random_reset_);
     reward(agent_id) += terminal_reward;
   }
 }

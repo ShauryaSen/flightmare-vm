@@ -24,6 +24,8 @@ PYBIND11_MODULE(flightgym, m) {
     .def("getEpisodeLength", &VecEnv<QuadrotorEnv>::getEpisodeLength)
     .def("testStep", &VecEnv<QuadrotorEnv>::testStep)
     .def("setSeed", &VecEnv<QuadrotorEnv>::setSeed)
+    .def("setRandomReset", &VecEnv<QuadrotorEnv>::setRandomReset)
+    .def("getRandomReset", &VecEnv<QuadrotorEnv>::getRandomReset)
     .def("close", &VecEnv<QuadrotorEnv>::close)
     .def("isTerminalState", &VecEnv<QuadrotorEnv>::isTerminalState)
     .def("curriculumUpdate", &VecEnv<QuadrotorEnv>::curriculumUpdate)

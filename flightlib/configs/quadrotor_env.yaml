@@ -23,7 +23,7 @@ quadrotor_dynamics:
   omega_max: [6.0, 6.0, 6.0]
 
 # ─── Start Position ───────────────────────────────────────
-start_pos: [17.5, -15., 6.31]
+start_pos: [17.4, -5., 6.31]
 
 # ─── Gate Course: AlphaPilot Track ─────────────────────────
 # Positions are in world frame [x, y, z] (Z=up).
@@ -125,11 +125,13 @@ rl:
   act_coeff: 0.0             # NOT in paper Eq.4 — kept at 0 for faithfulness
   gate_bonus: 0.0            # NOT in paper Eq.4 — kept at 0
   survival_bonus: 0.0        # NOT in paper Eq.4 — kept at 0
-  crash_penalty: 0.0         # NOT in paper Eq.4 — only r_T (gate collision) terminates with reward
+  crash_penalty: -5.0         # NOT in paper Eq.4 — only r_T (gate collision) terminates with reward
   body_rate_coeff: 0.0005    # b·‖ω‖² penalty (paper Eq. 4)
   body_rate_anneal_steps: 5000000  # steps to anneal b → 0 (paper L140: "added at an initial training stage")
-  gate_width: 3            # w_g — AlphaPilot/Split-S gate side length
+  gate_width: 5            # w_g — increased for easier learning (was 3)
   safety_coeff: 0.0          # a in paper Eq. 4 — disabled until base policy works
   safety_d_max: 1.5          # d_max for safety reward activation (meters)
   traj_init_threshold: 0.6   # gate-pass rate to switch to Phase 2 init
   traj_init_fraction: 0.5    # fraction of Phase 2 resets from traj buffer
+  spline_deviation_ratio: 1.5  # progress penalty per meter of lateral deviation from spline
+  deviation_penalty_coeff: 0.01  # per-step quadratic penalty for dev > gate_width/2

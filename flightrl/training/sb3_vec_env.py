@@ -84,3 +84,11 @@ class FlightmareSB3VecEnv(VecEnv):
     def seed(self, seed=None):
         if seed is not None:
             self.wrapper.setSeed(seed)
+
+    def set_random_reset(self, random: bool):
+        """Toggle distributed (random) init vs deterministic reset to start_pos.
+
+        Affects both explicit reset() calls and the post-done autoreset inside
+        VecEnv::step. Default is True (matches training behavior).
+        """
+        self.wrapper.setRandomReset(random)

@@ -56,7 +56,7 @@ EQUALS = =
 CMAKE_SOURCE_DIR = /home/ssen/flightmare/flightlib
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build
+CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38
 
 # Utility rule file for NightlyBuild.
 
@@ -82,6 +82,6 @@ NightlyBuild: /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/Ni
 .PHONY : /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/NightlyBuild.dir/clean
 
 /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/NightlyBuild.dir/depend:
-	cd /home/ssen/flightmare/flightlib/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/yaml-src /home/ssen/flightmare/flightlib/build /home/ssen/flightmare/flightlib/externals/yaml-build /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/NightlyBuild.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/yaml-src /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 /home/ssen/flightmare/flightlib/externals/yaml-build /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/NightlyBuild.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : /home/ssen/flightmare/flightlib/externals/yaml-build/CMakeFiles/NightlyBuild.dir/depend
 

@@ -1,6 +1,6 @@
 file(REMOVE_RECURSE
-  "/home/ssen/flightmare/flightlib/build/bin/libgtest.pdb"
-  "/home/ssen/flightmare/flightlib/build/lib/libgtest.a"
+  "/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/bin/libgtest.pdb"
+  "/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgtest.a"
   "CMakeFiles/gtest.dir/src/gtest-all.cc.o"
   "CMakeFiles/gtest.dir/src/gtest-all.cc.o.d"
 )

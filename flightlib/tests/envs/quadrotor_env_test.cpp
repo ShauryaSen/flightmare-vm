@@ -19,7 +19,7 @@ class QuadrotorEnvTestAccess {
   static Scalar& sPrev(QuadrotorEnv& e) { return e.s_prev_; }
   static bool passedGate(QuadrotorEnv& e) { return e.passed_gate_this_step_; }
   static int gatesPassedEp(QuadrotorEnv& e) { return e.gates_passed_this_ep_; }
-  static bool isGateCollision(QuadrotorEnv& e) { return e.is_gate_collision_; }
+  // is_gate_collision_ removed — gate collisions are disabled
   static Scalar terminalReward(QuadrotorEnv& e) { return e.terminal_reward_; }
   static Command& cmd(QuadrotorEnv& e) { return e.cmd_; }
   static int& totalEpisodes(QuadrotorEnv& e) { return e.total_episodes_; }
@@ -38,9 +38,11 @@ class QuadrotorEnvTestAccess {
   static Scalar gateWidth(QuadrotorEnv& e) { return e.gate_width_; }
   static long& totalSteps(QuadrotorEnv& e) { return e.total_steps_; }
 
-  static Scalar segProgress(QuadrotorEnv& e, const Vector<3>& pos, int idx) {
-    return e.segment_progress(pos, idx);
+  static Scalar splineProgress(QuadrotorEnv& e, const Vector<3>& pos, int idx) {
+    return e.spline_progress(pos, idx);
   }
+  static Scalar& deviationRatio(QuadrotorEnv& e) { return e.spline_deviation_ratio_; }
+  static std::vector<SplineSegment>& splineSegs(QuadrotorEnv& e) { return e.spline_segments_; }
 
   // Teleport drone to a position (reset physics state)
   static void teleport(QuadrotorEnv& e, const Vector<3>& pos) {
@@ -58,42 +60,71 @@ using namespace flightlib;
 using TA = QuadrotorEnvTestAccess;
 
 // ═══════════════════════════════════════════════════════════════
-// TEST 3: Segment Progress Geometry
+// TEST 3: Spline Progress Geometry
 // ═══════════════════════════════════════════════════════════════
 
-TEST(SegmentProgress, CorrectProjection) {
+TEST(SplineProgress, OnAxisLinear) {
+  // Straight-line track: spline is a straight line, so on-axis
+  // progress matches arc length (= Euclidean distance from segment start).
   QuadrotorEnv env(TA::testCfgPath());
   Vector<quadenv::kNObs> obs; obs.setZero();
   env.reset(obs, false);
-  // Segment 0: (0,0,5) → (20,0,5), len=20
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(0,0,5), 0), 0.0, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,0,5), 0), 10.0, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(20,0,5), 0), 20.0, 1e-6);
-  // Paper Eq. 2: raw unclamped projection — overshoot and backward both linear
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(21,0,5), 0), 21.0, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(50,0,5), 0), 50.0, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(-5,0,5), 0), -5.0, 1e-6);
-  // Lateral offset doesn't affect projection
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,5,5), 0), 10.0, 1e-6);
-  EXPECT_NEAR(TA::segProgress(env, Vector<3>(10,0,10), 0), 10.0, 1e-6);
+
+  // Set deviation ratio to 0 so we test pure arc-length progress
+  TA::deviationRatio(env) = 0.0;
+
+  // Segment 0: start(0,0,5) → gate0(20,0,5), arc_len ≈ 20
+  EXPECT_NEAR(TA::splineProgress(env, Vector<3>(0,0,5), 0), 0.0, 0.5);
+  EXPECT_NEAR(TA::splineProgress(env, Vector<3>(10,0,5), 0), 10.0, 0.5);
+  EXPECT_NEAR(TA::splineProgress(env, Vector<3>(20,0,5), 0), 20.0, 0.5);
 }
 
-TEST(SegmentProgress, Segment0UsesStartPos) {
+TEST(SplineProgress, BackwardYieldsZero) {
+  // Moving behind the segment start should clamp to 0
   QuadrotorEnv env(TA::testCfgPath());
   Vector<quadenv::kNObs> obs; obs.setZero();
   env.reset(obs, false);
-  // Segment 0 origin = start_pos (0,0,5), NOT gates[2]=(60,0,5)
-  Scalar s = TA::segProgress(env, Vector<3>(5,0,5), 0);
-  EXPECT_NEAR(s, 5.0, 1e-6);
+  TA::deviationRatio(env) = 0.0;
+
+  // Behind start_pos → nearest point is sample[0], arc_len = s_start → progress = 0
+  Scalar s = TA::splineProgress(env, Vector<3>(-5,0,5), 0);
+  EXPECT_LE(s, 0.5);  // Should be at or near 0
 }
 
-TEST(SegmentProgress, Segment1UsesPrevGate) {
+TEST(SplineProgress, LateralDeviationPenalty) {
+  // Lateral offset should reduce progress by deviation_ratio * distance
   QuadrotorEnv env(TA::testCfgPath());
   Vector<quadenv::kNObs> obs; obs.setZero();
   env.reset(obs, false);
+  TA::deviationRatio(env) = 0.5;
+
+  Scalar on_axis = TA::splineProgress(env, Vector<3>(10,0,5), 0);
+  Scalar off_axis = TA::splineProgress(env, Vector<3>(10,5,5), 0);
+  // off_axis should be reduced by approximately 0.5 * 5 = 2.5
+  EXPECT_NEAR(on_axis - off_axis, 2.5, 0.5);
+}
+
+TEST(SplineProgress, Segment0UsesStartPos) {
+  QuadrotorEnv env(TA::testCfgPath());
+  Vector<quadenv::kNObs> obs; obs.setZero();
+  env.reset(obs, false);
+  TA::deviationRatio(env) = 0.0;
+
+  // Segment 0 origin = start_pos (0,0,5), progress at (5,0,5) ≈ 5
+  Scalar s = TA::splineProgress(env, Vector<3>(5,0,5), 0);
+  EXPECT_NEAR(s, 5.0, 0.5);
+}
+
+TEST(SplineProgress, Segment1UsesPrevGate) {
+  QuadrotorEnv env(TA::testCfgPath());
+  Vector<quadenv::kNObs> obs; obs.setZero();
+  env.reset(obs, false);
+  TA::deviationRatio(env) = 0.0;
+
   // Segment 1: gates[0]=(20,0,5) → gates[1]=(40,0,5)
-  Scalar s = TA::segProgress(env, Vector<3>(30,0,5), 1);
-  EXPECT_NEAR(s, 10.0, 1e-6);
+  // At (30,0,5), progress should be ≈ 10
+  Scalar s = TA::splineProgress(env, Vector<3>(30,0,5), 1);
+  EXPECT_NEAR(s, 10.0, 0.5);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -149,26 +180,28 @@ TEST(GateDetection, SuccessfulPassThroughCenter) {
   EXPECT_EQ(TA::gatesPassedEp(env), 1);
 }
 
-// FINDING: Gate collision detection does not trigger when teleporting
-// the drone past the gate plane with lateral offset > gate_width/2.
-// SuccessfulPassThroughCenter (d_p=0) works, but d_p>0 doesn't trigger
-// the collision branch. This may be a real bug in the gate detection logic
-// that should be investigated separately.
-// TODO: Investigate why s_prev < seg_len && s_curr >= seg_len doesn't fire
-//       when the drone is laterally offset from the gate axis.
-TEST(GateDetection, DISABLED_CollisionOutsideOpening) {
+// Drone crosses gate plane outside the opening but within proximity.
+// With gate collisions disabled, this should have NO effect —
+// no termination, no gate advance, nothing.
+TEST(GateDetection, OutsideOpeningNoEffect) {
   QuadrotorEnv env(TA::testCfgPath());
   Vector<quadenv::kNObs> obs; obs.setZero();
   env.reset(obs, false);
   Vector<quadenv::kNAct> act = Vector<quadenv::kNAct>::Zero();
 
-  TA::sPrev(env) = 19.5;
-  TA::teleport(env, Vector<3>(20.5, 5, 5));
+  // Place drone behind gate plane, laterally offset outside opening
+  TA::teleport(env, Vector<3>(19.5, 2, 5));
   env.step(act, obs);
-  EXPECT_TRUE(TA::isGateCollision(env));
 
+  // Cross the plane, still laterally offset
+  TA::teleport(env, Vector<3>(20.5, 2, 5));
+  env.step(act, obs);
+
+  // No gate pass, no termination, still on gate 0
+  EXPECT_FALSE(TA::passedGate(env));
+  EXPECT_EQ(TA::gateIdx(env), 0);
   Scalar term_rew = 0;
-  EXPECT_TRUE(env.isTerminalState(term_rew));
+  EXPECT_FALSE(env.isTerminalState(term_rew));
 }
 
 TEST(GateDetection, NoCrossingWhenFlyingWide) {
@@ -182,9 +215,47 @@ TEST(GateDetection, NoCrossingWhenFlyingWide) {
     TA::teleport(env, Vector<3>(10, i * 0.5, 5));
     env.step(act, obs);
     EXPECT_FALSE(TA::passedGate(env));
-    EXPECT_FALSE(TA::isGateCollision(env));
   }
   EXPECT_EQ(TA::gateIdx(env), 0);
+}
+
+// Drone crosses the gate plane 30m away from the gate center.
+// The proximity guard prevents this from doing anything.
+TEST(GateDetection, DistantPlaneCrossingNoEffect) {
+  QuadrotorEnv env(TA::testCfgPath());
+  Vector<quadenv::kNObs> obs; obs.setZero();
+  env.reset(obs, false);
+  Vector<quadenv::kNAct> act = Vector<quadenv::kNAct>::Zero();
+
+  // Gate 0 at (20,0,5), normal [1,0,0]. Cross the plane at y=30 (far away).
+  TA::teleport(env, Vector<3>(19.5, 30, 5));
+  env.step(act, obs);
+
+  TA::teleport(env, Vector<3>(20.5, 30, 5));
+  env.step(act, obs);
+
+  // Should NOT trigger anything — drone is 30m from gate center
+  EXPECT_FALSE(TA::passedGate(env));
+  EXPECT_EQ(TA::gateIdx(env), 0);
+}
+
+// Drone passes through the corner of the rectangular gate opening.
+TEST(GateDetection, CornerPassIsSuccess) {
+  QuadrotorEnv env(TA::testCfgPath());
+  Vector<quadenv::kNObs> obs; obs.setZero();
+  env.reset(obs, false);
+  Vector<quadenv::kNAct> act = Vector<quadenv::kNAct>::Zero();
+
+  // Gate 0 at (20,0,5), normal [1,0,0], gate_width=1.5, half_w=0.75.
+  // Pass through corner: offset of (0.7, 0.7) in gate plane
+  TA::teleport(env, Vector<3>(19.5, 0.7, 5.7));
+  env.step(act, obs);
+
+  TA::teleport(env, Vector<3>(20.5, 0.7, 5.7));
+  env.step(act, obs);
+
+  EXPECT_TRUE(TA::passedGate(env));
+  EXPECT_EQ(TA::gateIdx(env), 1);
 }
 
 TEST(GateDetection, MultiGateSequence) {

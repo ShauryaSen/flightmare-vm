@@ -251,6 +251,11 @@ def evaluate(args):
     print(f"Loading model from: {model_path}")
     model = PPO.load(model_path)
 
+    # Evaluation runs the full track from start_pos. Distributed init is a
+    # training-only ingredient (paper L247-261); evaluating it would conflate
+    # per-segment difficulty with end-to-end policy quality.
+    raw_env.set_random_reset(False)
+
     # Run evaluation episodes
     n_episodes = 50
     max_steps = 100_000  # safety timeout

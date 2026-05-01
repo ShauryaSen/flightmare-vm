@@ -1,6 +1,6 @@
 # Autonomous Drone Racing — Project Context
-**Last updated:** 2026-04-30
-**Status:** ✅ Faithful IROS 2021 replication implemented — ready for training & ablation
+**Last updated:** 2026-05-01
+**Status:** ✅ Spline-based reward system validated — training with deviation-penalized progress reward
 
 ---
 
@@ -48,12 +48,14 @@ Faithfully replicate the **IROS 2021 autonomous drone racing baseline** (Song et
 │   ├── src/wrapper/
 │   │   └── pybind_wrapper.cpp          # getObs() + getEpisodeLength() exposed
 │   └── configs/
-│       ├── quadrotor_env.yaml          # Split-S track (7 gates with quaternion rotations)
+│       ├── quadrotor_env.yaml          # AlphaPilot track (11 gates with quaternion rotations)
 │       └── vec_env.yaml                # 100 envs, no render
 │
 └── flightrl/training/                 # Python training scripts
     ├── gate_racing_iros.py             # Main training + evaluation script (VecNormalize)
     ├── sb3_vec_env.py                  # SB3 VecEnv wrapper (with getObs fix)
+    ├── reward_math.js                  # JS port of C++ reward math (for visualizer)
+    ├── reward_debugger.html            # 3D interactive reward visualizer (Three.js)
     ├── run_ablation.py                 # Ablation study runner
     ├── sb3_vec_env_ablation.py         # Ablation-aware VecEnv wrapper
     ├── visualize_policy.py             # Trajectory recording + plotting + GIF animation
@@ -109,23 +111,55 @@ Per-motor thrusts, normalized: `act = action * act_std + act_mean`
 ### Physics
 - **Sim dt:** 0.02s (50 Hz)
 - **Integration:** RK4 rigid-body dynamics, quadratic thrust model
-- **Terminal conditions:** z ≤ 0.02m (ground crash) or |pos| > 100m (OOB)
+- **Terminal conditions:** z ≤ 0.02m (ground crash), |pos| > 100m (OOB), or t ≥ 30s (timeout)
+- **No gate collision termination** — only progress-based reward; gate pass detection advances the target gate index but does not terminate
 
-### Track: Split-S (7 gates)
-From the paper's original track files. Features vertically stacked gates (gates 4 & 5) requiring rapid elevation changes. Gate rotations stored as quaternions `[w, x, y, z]` in YAML.
+### Track: AlphaPilot (11 gates)
+From the paper's original track files with spline-derived gate orientations. Gate rotations stored as quaternions `[w, x, y, z]` in YAML. A cubic Hermite spline connects `[start_pos, G0, G1, ..., G10]` with tangent vectors matching gate fly-through normals. Total arc length: ~213m. Start position: `[17.4, -5.0, 6.31]`, gate width: 5m.
 
-### Reward Function (Paper Eq. 4-5, faithful)
+### Reward Function (Spline-based, evolved from Paper Eq. 4-5)
 ```
-r(t) = r_p(t) + a·r_s(t) − b·‖ω‖² + { r_T  if gate collision
-                                      { 0   otherwise
-r_p(t) = s(p_t) − s(p_{t−1})           # raw projection, unclamped
-r_T    = − min[(d_g/w_g)², 20.0]        # only on gate collision
+r(t) = r_progress(t) + r_deviation(t) + a·r_safety(t) − b·‖ω‖²
 ```
-- **Progress (`r_p`):** raw scalar projection delta along segment — no clamp
-- **Safety (`r_s`):** Eq. 3, gated by `safety_coeff > 0` (default 0)
-- **Body rate:** `−0.0005 · ‖ω‖²` annealed linearly to 0 over 5M steps
-- **Terminal `r_T`:** distance-dependent, only on gate collision
-- **No** survival bonus, gate-pass bonus, action penalty, or flat ground-crash penalty (paper has none of these)
+
+#### 1. Spline Progress (`r_progress`)
+The core reward signal. A cubic Hermite spline is built through `[start_pos, gate0, ..., gateN]` with tangent vectors matching gate fly-through normals (from quaternion rotations), scaled by chord length for smooth C1 interpolation. Each segment is densely sampled (200 points) with cumulative arc-length.
+
+A progress score function is defined at each position:
+```
+s(pos) = (arc_to_nearest_spline_point − segment_start) − deviation_ratio × lateral_distance
+```
+The per-step reward is the score delta:
+```
+r_progress = s(p_t) − s(p_{t-1})
+```
+- **Forward movement along spline → positive reward** (arc increases)
+- **Backward movement → negative reward** (arc decreases)
+- **Drifting laterally → one-time cost** when deviation changes (ratio = 1.5)
+- Score is clamped to `[seg.s_start, seg.s_end]` per segment
+
+**Key files:** `spline_progress()` in [quadrotor_env.cpp](flightlib/src/envs/quadrotor_env/quadrotor_env.cpp), `buildTrackSpline()` for spline construction.
+
+#### 2. Per-Step Deviation Penalty (`r_deviation`)
+The progress score's linear deviation term only penalizes *changes* in deviation — a drone flying parallel to the spline at constant 12m offset gets zero deviation cost per step. This quadratic penalty fixes that:
+```
+r_deviation = −coeff × max(0, dev − gate_width/2)²
+```
+- **Threshold:** `gate_width/2 = 2.5m` — no penalty within gate radius
+- **Quadratic scaling:** soft near the track, harsh far away (at 10m excess: −1.0/step)
+- **coeff:** 0.01 (configurable via `deviation_penalty_coeff` in YAML)
+- **Fires every step** — cannot be amortized away like the linear term
+
+#### 3. Safety (`r_safety`) — currently disabled
+- Paper Eq. 3, gated by `safety_coeff > 0` (default 0)
+
+#### 4. Body Rate Penalty
+- `−0.0005 · ‖ω‖²` annealed linearly to 0 over 5M steps
+
+#### What's NOT in the reward:
+- **No gate collision termination** — removed; was causing false positives on curved tracks
+- **No gate-pass bonus** — gate detection only advances target gate index
+- **No** survival bonus, action penalty, or flat crash penalty
 
 ### Distributed Initialization (Paper L247-261)
 Two-phase initialization strategy — one of the paper's "three key ingredients":
@@ -206,6 +240,8 @@ tensorboard --logdir saved/tb_logs --bind_all --port 6006
 
 ## 5. Critical Bugs Found & Fixed
 
+See [FIXES_ATTEMPTED.md](FIXES_ATTEMPTED.md) for the full append-only log with detailed hypotheses, file changes, and outcomes.
+
 ### Bug 1: `-Ofast` breaks `std::isfinite()` — physics never advances
 `-Ofast` enables `-ffinite-math-only` which makes `std::isfinite(NaN)` return `true`, corrupting `Command::valid()`. The drone never moved. **Fix:** volatile-based NaN checks in `command.cpp`.
 
@@ -215,17 +251,23 @@ tensorboard --logdir saved/tb_logs --bind_all --port 6006
 ### Bug 3: `EvalCallback` hangs forever
 VecEnv auto-resets before Python sees `done=True`. **Fix:** replaced with custom `TrainingRewardCallback`.
 
-### Bug 4: Progress reward double-clamped, killing the gradient (2026-04-30)
-`segment_progress()` clamped its projection to `[0, seg_len+0.5]` AND `step()` clamped the per-step delta to `±delta_max=0.5`. Together this both capped forward progress at 25 m/s (so longer segments yielded zero gradient) and zeroed the signal entirely once the drone overshot the gate plane or drifted behind the segment start. Drone plateaued before clearing gate 0. **Fix:** unclamped raw projection per paper Eq. 2.
+### Bug 4: Progress reward double-clamped (2026-04-30)
+Both `segment_progress()` and `step()` clamped progress, zeroing the gradient on longer segments. **Fix:** unclamped raw projection per paper Eq. 2.
 
 ### Bug 5: Non-paper reward shaping (2026-04-30)
-The env added `gate_bonus`, `survival_bonus`, `act_coeff·‖a‖²`, and a flat `crash_penalty` that the paper (Eq. 4) does not have. None of these unstuck training in practice and they obscured ablation comparisons. **Fix:** removed all four; only `r_p + a·r_s − b·‖ω‖²` plus `r_T` on gate collision remain.
+Removed `gate_bonus`, `survival_bonus`, `act_coeff`, `crash_penalty` — paper has none of these.
 
 ### Bug 6: Inertia ~2.5× heavier than paper (2026-04-30)
-`QuadrotorDynamics::updateInertiaMarix()` computes `J = m/12 · arm² · diag(4.5, 4.5, 7)`, giving `J_xx≈0.0079, J_zz≈0.012` for the 0.73 kg / 0.17 m drone. Paper experiments.tex L44 specifies `J = diag(0.003, 0.003, 0.005)`. The auto-computed inertia made the drone too sluggish to recover from random-policy attitude during early training. **Fix:** added optional `quadrotor_dynamics.inertia` yaml override; set to paper values. Also `kappa: 0.01` (was 0.016).
+Auto-computed `J` was too heavy for agile flight. **Fix:** explicit `inertia: [0.003, 0.003, 0.005]` override.
 
-### Bug 7: `gate_width` 2.5× too large (2026-04-30)
-`gate_width: 3` made the pass test `d_p < 1.5` cover a 3 m disk around the gate axis — collisions almost never registered. **Fix:** `gate_width: 1.2` (AlphaPilot/Split-S real gate side length).
+### Bug 7: Linear progress on curved tracks (2026-05-01)
+Scalar projection onto straight gate-to-gate lines rewarded backward flight and perpendicular motion on curved tracks. **Fix:** replaced with cubic Hermite spline-based progress (`buildTrackSpline()` + `spline_progress()`). ✅ Validated — monotonic reward improvement during training.
+
+### Bug 8: Gate collision false positives (2026-05-01)
+Gate-plane crossing on an infinite plane triggered spurious collisions 50m from gates. Three sub-bugs fixed (proximity guard, rectangular check, interpolated crossing point), then **gate collision termination removed entirely** — it's not needed for progress-based learning and was actively harmful on curved tracks. Terminal conditions: ground crash, OOB, timeout only.
+
+### Bug 9: Constant-offset deviation loophole (2026-05-01)
+The linear deviation term inside `spline_progress()` only penalizes *changes* in deviation — maintaining a constant large offset costs nothing per step. Drone could accumulate +42 reward while 12m off-track. **Fix:** (a) increased `spline_deviation_ratio` 0.5→1.5, (b) added per-step quadratic deviation penalty `−0.01 × max(0, dev − gate_width/2)²` — fires every step the drone is beyond gate radius.
 
 ---
 

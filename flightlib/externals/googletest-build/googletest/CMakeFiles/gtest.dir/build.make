@@ -56,7 +56,7 @@ EQUALS = =
 CMAKE_SOURCE_DIR = /home/ssen/flightmare/flightlib
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build
+CMAKE_BINARY_DIR = /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38
 
 # Include any dependencies generated for this target.
 include /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/depend.make
@@ -70,9 +70,9 @@ include /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CM
 include /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/flags.make
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o: /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/flags.make
-/home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o: ../externals/googletest-src/googletest/src/gtest-all.cc
+/home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o: ../../externals/googletest-src/googletest/src/gtest-all.cc
 /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o: /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/ssen/flightmare/flightlib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o"
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googletest && /usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o -MF CMakeFiles/gtest.dir/src/gtest-all.cc.o.d -o CMakeFiles/gtest.dir/src/gtest-all.cc.o -c /home/ssen/flightmare/flightlib/externals/googletest-src/googletest/src/gtest-all.cc
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.i: cmake_force
@@ -93,7 +93,7 @@ gtest_EXTERNAL_OBJECTS =
 lib/libgtest.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/src/gtest-all.cc.o
 lib/libgtest.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/build.make
 lib/libgtest.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/ssen/flightmare/flightlib/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX static library /home/ssen/flightmare/flightlib/build/lib/libgtest.a"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Linking CXX static library /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38/lib/libgtest.a"
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googletest && $(CMAKE_COMMAND) -P CMakeFiles/gtest.dir/cmake_clean_target.cmake
 	cd /home/ssen/flightmare/flightlib/externals/googletest-build/googletest && $(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/gtest.dir/link.txt --verbose=$(VERBOSE)
 
@@ -106,6 +106,6 @@ lib/libgtest.a: /home/ssen/flightmare/flightlib/externals/googletest-build/googl
 .PHONY : /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/clean
 
 /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/depend:
-	cd /home/ssen/flightmare/flightlib/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/googletest-src/googletest /home/ssen/flightmare/flightlib/build /home/ssen/flightmare/flightlib/externals/googletest-build/googletest /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/ssen/flightmare/flightlib /home/ssen/flightmare/flightlib/externals/googletest-src/googletest /home/ssen/flightmare/flightlib/build/temp.linux-aarch64-cpython-38 /home/ssen/flightmare/flightlib/externals/googletest-build/googletest /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : /home/ssen/flightmare/flightlib/externals/googletest-build/googletest/CMakeFiles/gtest.dir/depend
 

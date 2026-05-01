@@ -55,3 +55,4 @@ backups/
 .sass-cache
 _posts
 _site
+.claude/settings.local.json

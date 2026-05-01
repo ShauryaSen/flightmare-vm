@@ -157,11 +157,12 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
   step_counter_ = 0;
   gates_passed_this_ep_ = 0;
   if (num_gates_ > 0) {
-    s_prev_ = segment_progress(quad_state_.p, current_gate_idx_);
+    s_prev_ = spline_progress(quad_state_.p, current_gate_idx_);
   } else {
     s_prev_ = 0.0;
   }
   prev_vel_ = quad_state_.v;
+  prev_pos_for_gate_detect_ = quad_state_.p;
 
   getObs(obs);
   return true;
@@ -275,20 +276,35 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
 
   // ── IROS 2021 REWARD (Paper Eq. 2-5) ──
   passed_gate_this_step_ = false;
-  is_gate_collision_ = false;
   Scalar total_reward = 0.0;
 
   // Reset per-step reward component tracking
   last_progress_reward_ = 0.0;
   last_safety_reward_ = 0.0;
   last_body_rate_penalty_ = 0.0;
+  last_deviation_penalty_ = 0.0;
 
   if (num_gates_ > 0) {
     // 1. Progress Reward (Paper Eq. 2): r_p = s(p_t) - s(p_{t-1}), unclamped.
-    Scalar s_curr = segment_progress(quad_state_.p, current_gate_idx_);
+    //    Uses spline-based progress for correct curved-path tracking.
+    Scalar s_curr = spline_progress(quad_state_.p, current_gate_idx_);
     Scalar progress = s_curr - s_prev_;
     last_progress_reward_ = progress;
     total_reward += progress;
+
+    // 1b. Per-step deviation penalty: quadratic cost for straying beyond gate radius.
+    // Unlike the linear penalty inside spline_progress (which only fires on
+    // deviation *changes*), this fires every step the drone is far from the
+    // track, preventing it from cruising parallel at a large constant offset.
+    if (deviation_penalty_coeff_ > 0.0) {
+      Scalar dev = spline_nearest_dist(quad_state_.p, current_gate_idx_);
+      Scalar threshold = gate_width_ / Scalar(2.0);
+      if (dev > threshold) {
+        Scalar excess = dev - threshold;
+        last_deviation_penalty_ = -deviation_penalty_coeff_ * excess * excess;
+        total_reward += last_deviation_penalty_;
+      }
+    }
 
     // 2. Safety Reward (Paper Eq. 2-3)
     Vector<3> g_curr = gates_[current_gate_idx_];
@@ -304,35 +320,47 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
       total_reward += last_safety_reward_;
     }
 
-    // 3. Gate Pass / Collision Detection
-    // Plane crossing: s_prev < seg_len AND s_curr >= seg_len
-    // Segment 0 uses start_pos_ as origin (track is not circular)
-    Vector<3> g_prev = (current_gate_idx_ == 0) ? start_pos_ :
-                        gates_[(current_gate_idx_ - 1 + num_gates_) % num_gates_];
-    Scalar seg_len = (g_curr - g_prev).norm();
+    // 3. Gate Pass Detection
+    // Use gate-plane crossing with proximity guard: d_n transitions from
+    // negative to positive when the drone is near the gate.
+    // No gate collision termination — the agent is only rewarded for
+    // progress along the spline. Gate pass detection advances the
+    // target gate index so the spline progress tracks correctly.
+    Scalar d_n_prev = (prev_pos_for_gate_detect_ - g_curr).dot(n_curr);
+    Scalar dist_to_gate = (quad_state_.p - g_curr).norm();
+    Scalar gate_proximity = gate_width_ * Scalar(2.0);
 
-    if (s_prev_ < seg_len && s_curr >= seg_len) {
-      // Crossed the plane! Check if through the opening (w_g/2)
-      if (d_p < gate_width_ / 2.0) {
-        // SUCCESS: Through the gate. No bonus added — paper Eq. 4 has no
-        // gate-pass shaping term; the progress reward already accounts for
-        // forward motion through the segment.
+    if (d_n_prev < Scalar(0) && d_n >= Scalar(0) &&
+        dist_to_gate < gate_proximity) {
+      // Interpolate to the exact plane-crossing position
+      Scalar denom = d_n_prev - d_n;
+      Scalar t_cross = (std::abs(denom) > Scalar(1e-9))
+                           ? (d_n_prev / denom)
+                           : Scalar(0.5);
+      Vector<3> cross_pos = prev_pos_for_gate_detect_ +
+                            t_cross * (quad_state_.p - prev_pos_for_gate_detect_);
+      Vector<3> offset = cross_pos - g_curr;
+
+      // Rectangular gate check: project offset onto gate right/up axes
+      Vector<3> gate_right = gate_frames_[current_gate_idx_].col(1);
+      Vector<3> gate_up    = gate_frames_[current_gate_idx_].col(2);
+      Scalar off_right = std::abs(offset.dot(gate_right));
+      Scalar off_up    = std::abs(offset.dot(gate_up));
+      Scalar half_w = gate_width_ / Scalar(2.0);
+
+      if (off_right < half_w && off_up < half_w) {
+        // SUCCESS: Through the gate opening — advance to next gate.
         passed_gate_this_step_ = true;
         gates_passed_this_ep_++;
         total_gates_passed_++;
         current_gate_idx_ = (current_gate_idx_ + 1) % num_gates_;
-        s_prev_ = segment_progress(quad_state_.p, current_gate_idx_);
-      } else {
-        // COLLISION: Hit the gate frame. Paper Eq. 5: distance-dependent
-        // terminal penalty applied in isTerminalState().
-        is_gate_collision_ = true;
-        Scalar d_g = (quad_state_.p - g_curr).norm();
-        Scalar d_g_norm = d_g / gate_width_;
-        terminal_reward_ = -std::min(d_g_norm * d_g_norm, Scalar(20.0));
+        s_prev_ = spline_progress(quad_state_.p, current_gate_idx_);
       }
+      // If outside the opening, do nothing — no collision penalty.
     } else {
       s_prev_ = s_curr;
     }
+    prev_pos_for_gate_detect_ = quad_state_.p;
   }
 
   // 4. Body Rate Penalty with Annealing (Paper Eq. 4)
@@ -347,30 +375,26 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
     total_reward += last_body_rate_penalty_;
   }
 
-  // Paper Eq. 4 has no per-step survival bonus and no action-magnitude
-  // penalty. The only reward terms are progress, safety, and body-rate
-  // penalty (above), plus the terminal r_T applied via isTerminalState().
+  // Reward = progress + safety + body-rate penalty.
+  // No gate collision penalty or termination — only progress matters.
 
   last_total_reward_ = total_reward;
   return total_reward;
 }
 
 bool QuadrotorEnv::isTerminalState(Scalar &reward) {
-  // Paper Eq. 4-5: only gate collision produces a terminal reward (r_T).
-  // Ground crashes / out-of-world simply end the episode with reward 0;
-  // there is no flat ground-crash penalty in the paper.
+  // Terminal conditions: ground crash, out of bounds, or timeout.
+  // No gate collision termination — the agent only needs to make
+  // progress along the track spline.
   //
   // term_reason_ encoding (exposed via extra_info for diagnostics):
   //   0 = running (not terminal)
-  //   1 = gate collision
   //   2 = ground crash (z <= 0.02)
   //   3 = out of bounds (||p|| > 100)
   //   4 = timeout (t >= max_t)
   bool terminal = false;
   term_reason_ = 0;
-  if (is_gate_collision_) {
-    reward = terminal_reward_; terminal = true; term_reason_ = 1;
-  } else if (quad_state_.x(QS::POSZ) <= 0.02) {
+  if (quad_state_.x(QS::POSZ) <= 0.02) {
     reward = 0.0; terminal = true; term_reason_ = 2;
   } else if (quad_state_.p.norm() > 100.0) {
     reward = 0.0; terminal = true; term_reason_ = 3;
@@ -484,9 +508,16 @@ bool QuadrotorEnv::loadParam(const YAML::Node &cfg) {
     // Distributed init params
     if (cfg["rl"]["traj_init_threshold"]) traj_init_threshold_ = cfg["rl"]["traj_init_threshold"].as<Scalar>();
     if (cfg["rl"]["traj_init_fraction"]) traj_init_fraction_ = cfg["rl"]["traj_init_fraction"].as<Scalar>();
+    if (cfg["rl"]["spline_deviation_ratio"]) spline_deviation_ratio_ = cfg["rl"]["spline_deviation_ratio"].as<Scalar>();
+    if (cfg["rl"]["deviation_penalty_coeff"]) deviation_penalty_coeff_ = cfg["rl"]["deviation_penalty_coeff"].as<Scalar>();
   } else {
     logger_.error("Missing rl config section");
     return false;
+  }
+
+  // Build spline after gates and params are loaded
+  if (num_gates_ > 0) {
+    buildTrackSpline();
   }
   return true;
 }
@@ -502,24 +533,168 @@ bool QuadrotorEnv::getAct(Command *const cmd) const {
   return true;
 }
 
-Scalar QuadrotorEnv::segment_progress(const Vector<3>& pos, int target_gate_idx) {
-  // Paper Eq. 2 (methodology.tex L88-92): raw scalar projection of position
-  // onto the segment from the previous gate (or start_pos for segment 0)
-  // to the target gate. Unclamped — the per-step delta r_p = s(p_t)-s(p_{t-1})
-  // produces the correct sign for both forward and backward motion.
-  Vector<3> g1 = (target_gate_idx == 0) ? start_pos_ :
-                  gates_[(target_gate_idx - 1 + num_gates_) % num_gates_];
-  Vector<3> g2 = gates_[target_gate_idx];
-  Vector<3> seg = g2 - g1;
-  Scalar seg_len = seg.norm();
-  if (seg_len < 1e-6) return 0.0;
-  return (pos - g1).dot(seg) / seg_len;
+// ═══════════════════════════════════════════════════════════════════
+// Cubic Hermite spline helpers
+// ═══════════════════════════════════════════════════════════════════
+
+// Evaluate cubic Hermite basis at t ∈ [0,1]
+static inline Vector<3> hermite_eval(
+    const Vector<3>& p0, const Vector<3>& m0,
+    const Vector<3>& p1, const Vector<3>& m1,
+    Scalar t) {
+  Scalar t2 = t * t;
+  Scalar t3 = t2 * t;
+  Scalar h00 = Scalar(2)*t3 - Scalar(3)*t2 + Scalar(1);
+  Scalar h10 = t3 - Scalar(2)*t2 + t;
+  Scalar h01 = -Scalar(2)*t3 + Scalar(3)*t2;
+  Scalar h11 = t3 - t2;
+  return h00*p0 + h10*m0 + h01*p1 + h11*m1;
+}
+
+void QuadrotorEnv::buildTrackSpline() {
+  // Build cubic Hermite spline segments through [start, gate0, ..., gateN].
+  // At each gate, the tangent direction matches the gate normal (fly-through
+  // direction), scaled by chord length for smooth C1 interpolation.
+  // At the start position, tangent points toward gate 0.
+
+  spline_segments_.clear();
+  spline_segments_.resize(num_gates_);
+
+  // Collect all control points: start + gates
+  std::vector<Vector<3>> ctrl_pts;
+  std::vector<Vector<3>> tangent_dirs;
+  ctrl_pts.reserve(num_gates_ + 1);
+  tangent_dirs.reserve(num_gates_ + 1);
+
+  ctrl_pts.push_back(start_pos_);
+  // Start tangent: direction toward first gate
+  Vector<3> start_dir = (gates_[0] - start_pos_);
+  if (start_dir.norm() > Scalar(1e-6)) start_dir.normalize();
+  tangent_dirs.push_back(start_dir);
+
+  for (int i = 0; i < num_gates_; ++i) {
+    ctrl_pts.push_back(gates_[i]);
+    tangent_dirs.push_back(gate_normals_[i]);  // unit vector, fly-through dir
+  }
+
+  // Global arc-length accumulator (across all segments)
+  Scalar global_arc = Scalar(0);
+
+  for (int seg_i = 0; seg_i < num_gates_; ++seg_i) {
+    // Hermite segment from ctrl_pts[seg_i] to ctrl_pts[seg_i+1]
+    const Vector<3>& p0 = ctrl_pts[seg_i];
+    const Vector<3>& p1 = ctrl_pts[seg_i + 1];
+    Scalar chord = (p1 - p0).norm();
+
+    // Scale tangent vectors by chord length for proper Hermite parameterization
+    Vector<3> m0 = tangent_dirs[seg_i] * chord;
+    Vector<3> m1 = tangent_dirs[seg_i + 1] * chord;
+
+    auto& seg = spline_segments_[seg_i];
+    seg.s_start = global_arc;
+    seg.samples.resize(kSplineSamplesPerSegment);
+    seg.arc_lengths.resize(kSplineSamplesPerSegment);
+
+    seg.samples[0] = p0;
+    seg.arc_lengths[0] = global_arc;
+
+    for (int j = 1; j < kSplineSamplesPerSegment; ++j) {
+      Scalar t = Scalar(j) / Scalar(kSplineSamplesPerSegment - 1);
+      seg.samples[j] = hermite_eval(p0, m0, p1, m1, t);
+      global_arc += (seg.samples[j] - seg.samples[j - 1]).norm();
+      seg.arc_lengths[j] = global_arc;
+    }
+
+    seg.s_end = global_arc;
+  }
+
+  logger_.info("Built spline progress tracker: " +
+               std::to_string(num_gates_) + " segments, total arc length = " +
+               std::to_string(global_arc) + " m, deviation_ratio = " +
+               std::to_string(spline_deviation_ratio_));
+}
+
+Scalar QuadrotorEnv::spline_progress(const Vector<3>& pos, int target_gate_idx) {
+  // Find the nearest point on the spline segment leading to target_gate_idx.
+  // Returns: (arc_length_of_nearest - segment_start) - ratio * lateral_deviation
+  //
+  // The score is relative to the segment start (0 at previous gate/start),
+  // so moving backward within the segment yields negative values.
+  // Lateral deviation is penalized proportionally to spline_deviation_ratio_.
+
+  if (target_gate_idx < 0 || target_gate_idx >= num_gates_) return Scalar(0);
+  const auto& seg = spline_segments_[target_gate_idx];
+  if (seg.samples.empty()) return Scalar(0);
+
+  // Brute-force nearest sample (N=200 samples, very fast)
+  Scalar best_dist_sq = std::numeric_limits<Scalar>::max();
+  int best_idx = 0;
+  for (int j = 0; j < static_cast<int>(seg.samples.size()); ++j) {
+    Scalar d2 = (pos - seg.samples[j]).squaredNorm();
+    if (d2 < best_dist_sq) {
+      best_dist_sq = d2;
+      best_idx = j;
+    }
+  }
+
+  // Refine: project onto the line segment between best_idx-1 and best_idx+1
+  // to get sub-sample accuracy
+  Scalar best_arc = seg.arc_lengths[best_idx];
+  Scalar best_dist = std::sqrt(best_dist_sq);
+
+  // Try refining against the neighboring segments for better accuracy
+  for (int offset = -1; offset <= 1; offset += 2) {
+    int j2 = best_idx + offset;
+    if (j2 < 0 || j2 >= static_cast<int>(seg.samples.size())) continue;
+
+    Vector<3> a = seg.samples[best_idx];
+    Vector<3> b = seg.samples[j2];
+    Vector<3> ab = b - a;
+    Scalar ab_len2 = ab.squaredNorm();
+    if (ab_len2 < Scalar(1e-12)) continue;
+
+    Scalar t = (pos - a).dot(ab) / ab_len2;
+    t = std::max(Scalar(0), std::min(Scalar(1), t));
+
+    Vector<3> proj = a + t * ab;
+    Scalar d = (pos - proj).norm();
+    if (d < best_dist) {
+      best_dist = d;
+      // Interpolate arc length
+      best_arc = seg.arc_lengths[best_idx] +
+                 t * (seg.arc_lengths[j2] - seg.arc_lengths[best_idx]);
+    }
+  }
+
+  // Clamp arc length to segment bounds (prevents going before segment start)
+  best_arc = std::max(best_arc, seg.s_start);
+  best_arc = std::min(best_arc, seg.s_end);
+
+  // Score: progress along path (relative to segment start) minus deviation penalty
+  Scalar progress = (best_arc - seg.s_start) -
+                    spline_deviation_ratio_ * best_dist;
+  return progress;
+}
+
+Scalar QuadrotorEnv::spline_nearest_dist(const Vector<3>& pos, int target_gate_idx) {
+  // Returns the nearest Euclidean distance from pos to the spline segment.
+  if (target_gate_idx < 0 || target_gate_idx >= num_gates_) return Scalar(0);
+  const auto& seg = spline_segments_[target_gate_idx];
+  if (seg.samples.empty()) return Scalar(0);
+
+  Scalar best_dist_sq = std::numeric_limits<Scalar>::max();
+  for (int j = 0; j < static_cast<int>(seg.samples.size()); ++j) {
+    Scalar d2 = (pos - seg.samples[j]).squaredNorm();
+    if (d2 < best_dist_sq) best_dist_sq = d2;
+  }
+  return std::sqrt(best_dist_sq);
 }
 
 void QuadrotorEnv::updateExtraInfo() {
   extra_info_["r_progress"] = last_progress_reward_;
   extra_info_["r_safety"] = last_safety_reward_;
   extra_info_["r_bodyrate"] = last_body_rate_penalty_;
+  extra_info_["r_deviation"] = last_deviation_penalty_;
   extra_info_["r_total"] = last_total_reward_;
   extra_info_["gate_idx"] = Scalar(current_gate_idx_);
   extra_info_["s_prev"] = s_prev_;

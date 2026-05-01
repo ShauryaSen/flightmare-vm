@@ -48,3 +48,5 @@ rl:
   safety_d_max: 1.5
   traj_init_threshold: 0.3
   traj_init_fraction: 0.5
+  spline_deviation_ratio: 0.5
+  deviation_penalty_coeff: 0.01

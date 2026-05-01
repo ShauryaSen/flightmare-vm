@@ -68,6 +68,17 @@ struct TrajectorySnapshot {
   int gate_idx;  // which gate was the target when this state was recorded
 };
 
+// ── Precomputed spline segment for arc-length-based progress tracking ──
+// Each segment spans from the previous gate (or start) to the next gate,
+// storing densely-sampled (position, arc_length) pairs for fast nearest-
+// point queries.
+struct SplineSegment {
+  std::vector<Vector<3>> samples;     // sampled 3D positions along spline
+  std::vector<Scalar> arc_lengths;    // cumulative arc length at each sample
+  Scalar s_start;                     // arc length at segment start (prev gate)
+  Scalar s_end;                       // arc length at segment end (next gate)
+};
+
 class QuadrotorEnv final : public EnvBase {
   // Grant test classes access to private members for verification
   friend class QuadrotorEnvTestAccess;
@@ -116,6 +127,7 @@ class QuadrotorEnv final : public EnvBase {
   Scalar s_prev_{0.0};                  // projected progress at previous step (Eq. 2)
   Scalar gate_radius_{1.0};              // radius for gate-pass detection
   bool passed_gate_this_step_{false};    // flag for gate-pass bonus
+  Vector<3> prev_pos_for_gate_detect_{Vector<3>::Zero()}; // position at previous step for gate-plane crossing
 
   // ── Distributed Initialization (Paper methodology.tex L247-261) ──
   // Phase 1: Hover init across all segments (uniform)
@@ -144,16 +156,24 @@ class QuadrotorEnv final : public EnvBase {
   Scalar safety_d_max_{1.0};           // d_max — threshold to activate safety reward
   bool is_gate_collision_{false};      // flag for gate collision terminal
   Scalar terminal_reward_{0.0};        // r_T (Eq. 5) computed on gate collision
+  Scalar deviation_penalty_coeff_{0.01}; // per-step quadratic penalty beyond gate_radius
 
   // ── Reward component tracking (for extra_info logging) ──
   Scalar last_progress_reward_{0.0};
   Scalar last_safety_reward_{0.0};
   Scalar last_body_rate_penalty_{0.0};
+  Scalar last_deviation_penalty_{0.0};
   Scalar last_total_reward_{0.0};
   int term_reason_{0};  // 0=running, 1=gate_collision, 2=ground, 3=oob, 4=timeout
 
-  // ── Helper ──
-  Scalar segment_progress(const Vector<3>& pos, int target_gate_idx);
+  // ── Spline-based progress tracking ──
+  std::vector<SplineSegment> spline_segments_;  // one per gate
+  Scalar spline_deviation_ratio_{0.5};          // penalty per meter off spline
+  static constexpr int kSplineSamplesPerSegment = 200;
+
+  void buildTrackSpline();  // called from loadParam() after gates are loaded
+  Scalar spline_progress(const Vector<3>& pos, int target_gate_idx);
+  Scalar spline_nearest_dist(const Vector<3>& pos, int target_gate_idx);
 
   // observations and actions (for RL)
   Vector<quadenv::kNObs> quad_obs_;

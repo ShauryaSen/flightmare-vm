@@ -75,6 +75,7 @@ class EpisodeTrajectory:
     total_reward: float = 0.0
     length: int = 0
     term_reason: str = "running"  # termination reason string
+    gates_passed: int = 0         # number of gates passed in this episode
 
 
 # ── IROS 2021 Observation Space Layout (26-dim) ────────────────
@@ -180,6 +181,11 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
     We reconstruct position by integrating the raw velocity from the
     known start position: pos[t+1] = pos[t] + vel[t] * dt
     """
+    # Visualization assumes the drone starts at start_pos (paper objective).
+    # Disable distributed-init so the reconstructed-from-velocity path is
+    # anchored correctly. Affects explicit reset and post-done autoreset.
+    raw_env.set_random_reset(False)
+
     obs = env.reset()
     n_envs = env.num_envs
 
@@ -240,6 +246,9 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
                     elif len(ep_rewards[i]) >= int(30.0 / SIM_DT) - 5:
                         tr_str = "timeout"
 
+                # Extract gates_passed from extra_info
+                gp = int(info[i].get("gates_passed", 0))
+
                 traj = EpisodeTrajectory(
                     positions=np.array(ep_positions[i]),
                     velocities=np.array(ep_velocities[i]),
@@ -250,6 +259,7 @@ def record_episodes(model, env, raw_env, start_pos: np.ndarray,
                     total_reward=sum(ep_rewards[i]),
                     length=len(ep_rewards[i]),
                     term_reason=tr_str,
+                    gates_passed=gp,
                 )
                 completed.append(traj)
 
@@ -319,38 +329,88 @@ def draw_gate_3d(ax, pos, R, gate_width, idx, arrow_len=3.0):
             fontsize=9, ha="center", color="blue", fontweight="bold")
 
 
-# ── Trackline spline ─────────────────────────────────────────────
+# ── Trackline spline (Hermite — matches C++ buildTrackSpline exactly) ────
 
-def compute_trackline(start_pos: np.ndarray, gates: np.ndarray, n_pts: int = 300):
-    """Compute a smooth cubic-spline trackline through start → gates.
+def _hermite_eval(p0, m0, p1, m1, t):
+    """Evaluate cubic Hermite basis at t ∈ [0,1]."""
+    t2 = t * t
+    t3 = t2 * t
+    h00 = 2*t3 - 3*t2 + 1
+    h10 = t3 - 2*t2 + t
+    h01 = -2*t3 + 3*t2
+    h11 = t3 - t2
+    return h00*p0 + h10*m0 + h01*p1 + h11*m1
 
-    Returns an (n_pts, 3) array of points along the center trackline
-    that the progress reward incentivises the drone to follow.
+
+def compute_trackline(start_pos: np.ndarray, gates: np.ndarray,
+                      gate_normals: np.ndarray = None,
+                      gate_rotmats: list = None,
+                      n_pts_per_seg: int = 50):
+    """Compute the cubic Hermite trackline that matches C++ buildTrackSpline().
+
+    Uses gate normals as tangent directions at each gate, scaled by chord
+    length.  This is the EXACT curve the spline-based progress reward uses.
+
+    Returns an (N, 3) array of points along the center trackline.
     """
-    from scipy.interpolate import CubicSpline
+    num_gates = len(gates)
 
-    waypoints = np.vstack([start_pos.reshape(1, 3), gates])  # (N+1, 3)
-    t_knots = np.zeros(len(waypoints))
-    for i in range(1, len(waypoints)):
-        t_knots[i] = t_knots[i - 1] + np.linalg.norm(waypoints[i] - waypoints[i - 1])
+    # Build tangent directions: start → first gate, then gate normals
+    start_dir = gates[0] - start_pos
+    n = np.linalg.norm(start_dir)
+    if n > 1e-6:
+        start_dir = start_dir / n
 
-    cs = CubicSpline(t_knots, waypoints, bc_type='natural')
-    t_fine = np.linspace(t_knots[0], t_knots[-1], n_pts)
-    return cs(t_fine)
+    # Get gate normals from rotmats if available, else from gate_normals array
+    tangent_dirs = [start_dir]
+    for i in range(num_gates):
+        if gate_rotmats is not None:
+            normal = gate_rotmats[i][:, 0]
+            normal = normal / np.linalg.norm(normal)
+        elif gate_normals is not None:
+            normal = gate_normals[i] / np.linalg.norm(gate_normals[i])
+        else:
+            # Fallback: segment direction
+            prev = start_pos if i == 0 else gates[i-1]
+            seg = gates[i] - prev
+            normal = seg / np.linalg.norm(seg)
+        tangent_dirs.append(normal)
+
+    # Control points: [start, gate0, ..., gateN]
+    ctrl_pts = np.vstack([start_pos.reshape(1, 3), gates])
+
+    all_pts = []
+    for seg_i in range(num_gates):
+        p0 = ctrl_pts[seg_i]
+        p1 = ctrl_pts[seg_i + 1]
+        chord = np.linalg.norm(p1 - p0)
+
+        # Scale tangents by chord length (exact C++ match)
+        m0 = tangent_dirs[seg_i] * chord
+        m1 = tangent_dirs[seg_i + 1] * chord
+
+        for j in range(n_pts_per_seg):
+            t = j / max(n_pts_per_seg - 1, 1)
+            all_pts.append(_hermite_eval(p0, m0, p1, m1, t))
+
+    # Add final point
+    all_pts.append(gates[-1].copy())
+    return np.array(all_pts)
 
 
-def draw_trackline_3d(ax, start_pos, gates):
-    """Draw the center trackline spline on a 3D axis."""
-    pts = compute_trackline(start_pos, gates)
+def draw_trackline_3d(ax, start_pos, gates, gate_normals=None, gate_rotmats=None):
+    """Draw the center trackline (Hermite spline) on a 3D axis."""
+    pts = compute_trackline(start_pos, gates, gate_normals, gate_rotmats)
     ax.plot(pts[:, 0], pts[:, 1], pts[:, 2],
-            '--', color='#FFD700', linewidth=1.8, alpha=0.6, label='Trackline', zorder=2)
+            '-', color='#FFD700', linewidth=2.2, alpha=0.75, label='Hermite Spline (reward path)', zorder=2)
 
 
-def draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b):
-    """Draw the center trackline spline on a 2D axis."""
-    pts = compute_trackline(start_pos, gates)
+def draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b,
+                      gate_normals=None, gate_rotmats=None):
+    """Draw the center trackline (Hermite spline) on a 2D axis."""
+    pts = compute_trackline(start_pos, gates, gate_normals, gate_rotmats)
     ax.plot(pts[:, dim_a], pts[:, dim_b],
-            '--', color='#FFD700', linewidth=1.8, alpha=0.6, label='Trackline', zorder=2)
+            '-', color='#FFD700', linewidth=2.2, alpha=0.75, label='Hermite Spline (reward path)', zorder=2)
 
 
 # ── Static plots ─────────────────────────────────────────────────
@@ -382,7 +442,7 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
         pos = ep.positions
         alpha = 0.9 if idx < 3 else 0.3
         lw = 2.0 if idx < 3 else 0.8
-        label = (f"R={ep.total_reward:.1f} ({ep.length}st, {ep.term_reason})"
+        label = (f"R={ep.total_reward:.1f} ({ep.length}st, {ep.term_reason}, G={ep.gates_passed})"
                  if idx < 5 else None)
         ax.plot(pos[:, 0], pos[:, 1], pos[:, 2],
                 color=colors[idx], alpha=alpha, linewidth=lw, label=label)
@@ -394,6 +454,12 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
         tc = TERM_COLORS.get(ep.term_reason, "#95a5a6")
         ax.scatter(*pos[-1], color=tc, marker=tm, s=60, alpha=0.9,
                    edgecolors="black", linewidths=0.5, zorder=6)
+        # Annotate gates_passed count near endpoint
+        if ep.gates_passed > 0:
+            ax.text(pos[-1, 0], pos[-1, 1], pos[-1, 2] + 0.5,
+                    f"G{ep.gates_passed}", fontsize=7, color=tc,
+                    ha='center', va='bottom', fontweight='bold',
+                    zorder=7)
 
     # Draw gates with proper rectangular frames and normals
     for i, g in enumerate(gates):
@@ -401,7 +467,7 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
         draw_gate_3d(ax, g, R, gate_width, i)
 
     # Trackline spline (center reward path)
-    draw_trackline_3d(ax, start_pos, gates)
+    draw_trackline_3d(ax, start_pos, gates, gate_normals, gate_rotmats)
 
     # Start position marker
     ax.scatter(*start_pos, color="green", s=120, marker="*", zorder=10,
@@ -444,6 +510,7 @@ def plot_3d_trajectories(episodes: List[EpisodeTrajectory],
 def plot_topdown(episodes: List[EpisodeTrajectory],
                  gates: np.ndarray,
                  gate_normals: np.ndarray,
+                 gate_rotmats: list,
                  gate_width: float,
                  start_pos: np.ndarray,
                  out_path: str,
@@ -516,8 +583,9 @@ def plot_topdown(episodes: List[EpisodeTrajectory],
                         textcoords="offset points", xytext=(8, 8),
                         fontsize=8, color=label_color, fontweight="bold")
 
-        # Trackline spline
-        draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b)
+        # Trackline spline (Hermite — matches C++ reward)
+        draw_trackline_2d(ax, start_pos, gates, dim_a, dim_b,
+                          gate_normals, gate_rotmats)
 
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel(ylabel, fontsize=11)
@@ -558,7 +626,7 @@ def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
     for i, g in enumerate(gates):
         R = gate_rotmats[i] if gate_rotmats else np.eye(3)
         draw_gate_3d(ax3d, g, R, gate_width, i, arrow_len=2.0)
-    draw_trackline_3d(ax3d, start_pos, gates)
+    draw_trackline_3d(ax3d, start_pos, gates, gate_normals, gate_rotmats)
     ax3d.set_xlabel("X"); ax3d.set_ylabel("Y"); ax3d.set_zlabel("Z")
     ax3d.set_title("3D Trajectory (color = time)")
     ax3d.legend(fontsize=8)
@@ -621,7 +689,8 @@ def plot_episode_detail(ep: EpisodeTrajectory, gates: np.ndarray,
 # ── Animation ────────────────────────────────────────────────────
 
 def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
-                    gate_rotmats: list, gate_width: float,
+                    gate_rotmats: list, gate_normals: np.ndarray,
+                    gate_width: float,
                     start_pos: np.ndarray,
                     out_path: str, speedup: int = 2):
     """Create an animated GIF with rectangular gate frames and termination info."""
@@ -638,8 +707,8 @@ def animate_episode(ep: EpisodeTrajectory, gates: np.ndarray,
         R = gate_rotmats[i] if gate_rotmats else np.eye(3)
         draw_gate_3d(ax, g, R, gate_width, i)
 
-    # Trackline spline
-    draw_trackline_3d(ax, start_pos, gates)
+    # Trackline spline (Hermite — matches C++ reward)
+    draw_trackline_3d(ax, start_pos, gates, gate_normals, gate_rotmats)
 
     # Trail line + drone marker
     trail_line, = ax.plot([], [], [], "r-", linewidth=1.5, alpha=0.6)
@@ -732,6 +801,20 @@ def print_summary(episodes: List[EpisodeTrajectory]):
           f"{np.max(sim_times):>10.2f}")
     print(f"{'='*65}")
 
+    # Gates passed breakdown
+    gp_list = [e.gates_passed for e in episodes]
+    print(f"\n  Gates Passed:")
+    print(f"    mean={np.mean(gp_list):.2f}  "
+          f"max={np.max(gp_list)}  "
+          f"min={np.min(gp_list)}  "
+          f"total={np.sum(gp_list)}")
+    from collections import Counter as GpCounter
+    gp_counts = GpCounter(gp_list)
+    for gp_val in sorted(gp_counts.keys()):
+        cnt = gp_counts[gp_val]
+        pct = 100.0 * cnt / len(episodes)
+        print(f"    {gp_val:2d} gates: {cnt:3d} episodes ({pct:5.1f}%)")
+
     # Termination reason breakdown
     from collections import Counter
     term_counts = Counter(e.term_reason for e in episodes)
@@ -750,7 +833,7 @@ def print_summary(episodes: List[EpisodeTrajectory]):
     for rank, (i, ep) in enumerate(sorted_eps[:5]):
         avg_spd = np.linalg.norm(ep.velocities, axis=1).mean()
         print(f"    #{rank+1}: R={ep.total_reward:7.2f}  "
-              f"len={ep.length:4d}  "
+              f"len={ep.length:4d}  gates={ep.gates_passed}  "
               f"avg_speed={avg_spd:.2f} m/s  "
               f"{ep.term_reason}")
 
@@ -840,7 +923,7 @@ def main():
 
     # 2. Top-down + side view
     plot_topdown(
-        episodes, gates, gate_normals, gate_width, start_pos,
+        episodes, gates, gate_normals, gate_rotmats, gate_width, start_pos,
         out_path=str(out_dir / f"{model_name}_topdown.png"),
         title=f"Trajectory Views — {model_name}",
     )
@@ -863,7 +946,8 @@ def main():
         print(f"\nCreating {args.animate_n} animations...")
         for idx, ep in enumerate(sorted_eps[:args.animate_n]):
             out_path = str(out_dir / f"{model_name}_ep{idx+1}_R{ep.total_reward:.0f}_{ep.term_reason}.gif")
-            animate_episode(ep, gates, gate_rotmats, gate_width, start_pos,
+            animate_episode(ep, gates, gate_rotmats, gate_normals,
+                            gate_width, start_pos,
                             out_path, speedup=args.speedup)
 
     # Save raw trajectory data for later analysis
