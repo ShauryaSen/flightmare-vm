@@ -27,6 +27,12 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a1a;color:#e0e0e
 #path-trail{position:absolute;top:280px;right:10px;z-index:10;background:rgba(0,0,0,.85);padding:10px 14px;border-radius:8px;border:1px solid rgba(100,100,255,.2);font-size:11px;max-height:200px;overflow-y:auto;width:320px}
 #path-trail h4{color:#7ca0ff;margin-bottom:4px}
 #trail-list{font-family:monospace;font-size:10px;line-height:1.5}
+#coeff-panel{position:absolute;top:160px;left:10px;z-index:10;background:rgba(0,0,0,.9);padding:14px 18px;border-radius:10px;border:1px solid rgba(255,180,50,.4);font-size:13px;width:260px}
+#coeff-panel h3{color:#ffb432;margin-bottom:10px}
+.slider-row{display:flex;align-items:center;margin:6px 0;gap:6px}
+.slider-label{color:#999;font-size:11px;min-width:110px}
+.slider-row input[type=range]{flex:1;accent-color:#ffb432;cursor:pointer}
+.slider-val{font-family:monospace;font-weight:bold;color:#ffb432;min-width:36px;text-align:right;font-size:12px}
 </style>
 </head>
 <body>
@@ -36,6 +42,17 @@ body{font-family:'Segoe UI',system-ui,sans-serif;background:#0a0a1a;color:#e0e0e
 <div style="margin-top:6px;color:#888;font-size:11px">
 <label><input type="checkbox" id="chk-auto-advance" checked> Auto-advance gate on pass</label>
 </div></div>
+
+<div id="coeff-panel">
+<h3>⚙️ Coefficients</h3>
+<div class="slider-row"><span class="slider-label">deviation_ratio</span><input type="range" id="sl-ratio" min="0" max="5" step="0.1" value="1.5"><span class="slider-val" id="sv-ratio">1.5</span></div>
+<div class="slider-row"><span class="slider-label">dev_penalty_coeff</span><input type="range" id="sl-devcoeff" min="0" max="1" step="0.01" value="0.3"><span class="slider-val" id="sv-devcoeff">0.3</span></div>
+<div class="slider-row"><span class="slider-label">gate_width</span><input type="range" id="sl-gw" min="1" max="15" step="0.5" value="5"><span class="slider-val" id="sv-gw">5</span></div>
+<div style="margin-top:6px;font-size:10px;color:#666;line-height:1.4">
+  penalty = −coeff × max(0, dist − gw/2)<br>
+  s(p) = arc − ratio × dist
+</div>
+</div>
 
 <div id="hud">
 <h2>📊 Reward Debugger</h2>
@@ -80,8 +97,11 @@ import {CONFIG,buildTrackSpline,splineProgress,computeRewardDelta,checkGatePass,
         v3sub,v3add,v3scale,v3norm,v3normalize,v3dot,quatToR} from './reward_math.js';
 
 // ── Build spline ──
-const spline = buildTrackSpline();
+let spline = buildTrackSpline();
 const numGates = CONFIG.gates.length;
+
+// ── Live config (mutated by sliders) ──
+const liveConfig = {...CONFIG};
 
 // ── State ──
 let dronePos = [...CONFIG.startPos];
@@ -90,8 +110,28 @@ let targetGate = 0;
 let cumReward = 0;
 let stepCount = 0;
 let gatesPassed = 0;
-let sPrev = splineProgress(dronePos, targetGate, spline);
+let sPrev = splineProgress(dronePos, targetGate, spline, liveConfig);
 const trailLog = [];
+
+// ── Coefficient sliders ──
+function wireSlider(sliderId, valId, configKey, rebuild) {
+  const sl = document.getElementById(sliderId);
+  const sv = document.getElementById(valId);
+  sl.addEventListener('input', () => {
+    const v = parseFloat(sl.value);
+    sv.textContent = v;
+    liveConfig[configKey] = v;
+    if (rebuild) {
+      spline = buildTrackSpline(liveConfig);
+    }
+    // Recompute sPrev with new config
+    sPrev = splineProgress(dronePos, targetGate, spline, liveConfig);
+    updateHUD(0);
+  });
+}
+wireSlider('sl-ratio', 'sv-ratio', 'splineDeviationRatio', false);
+wireSlider('sl-devcoeff', 'sv-devcoeff', 'deviationPenaltyCoeff', false);
+wireSlider('sl-gw', 'sv-gw', 'gateWidth', false);
 
 // ── THREE.js setup ──
 const scene = new THREE.Scene();
@@ -203,7 +243,7 @@ for(let i=0;i<numGates;i++){
 }
 function setTargetGate(i){
   targetGate=i;
-  sPrev=splineProgress(dronePos,targetGate,spline);
+  sPrev=splineProgress(dronePos,targetGate,spline,liveConfig);
   document.querySelectorAll('#gate-btns button').forEach((b,j)=>b.classList.toggle('active',j===i));
   updateHUD(0);
 }
@@ -213,7 +253,7 @@ document.getElementById('btn-reset-drone').addEventListener('click',()=>{
   dronePos=[...CONFIG.startPos];prevPos=[...dronePos];
   droneGroup.position.set(...dronePos);
   targetGate=0;cumReward=0;stepCount=0;gatesPassed=0;
-  sPrev=splineProgress(dronePos,targetGate,spline);
+  sPrev=splineProgress(dronePos,targetGate,spline,liveConfig);
   trailCount=0;trailGeo.setDrawRange(0,0);trailLog.length=0;
   setTargetGate(0);updateHUD(0);updateTrailDisplay();
 });
@@ -279,14 +319,14 @@ function onMouseMove(e){
 
   // Compute reward step
   const autoAdvance=document.getElementById('chk-auto-advance').checked;
-  if(autoAdvance && checkGatePass(prevPos,dronePos,targetGate,spline)){
+  if(autoAdvance && checkGatePass(prevPos,dronePos,targetGate,spline,liveConfig)){
     gatesPassed++;
     targetGate=(targetGate+1)%numGates;
-    sPrev=splineProgress(dronePos,targetGate,spline);
+    sPrev=splineProgress(dronePos,targetGate,spline,liveConfig);
     setTargetGate(targetGate);
   }
 
-  const result=computeRewardDelta(prevPos,dronePos,targetGate,spline);
+  const result=computeRewardDelta(prevPos,dronePos,targetGate,spline,liveConfig);
   cumReward+=result.progress;
   stepCount++;
 
@@ -322,14 +362,14 @@ renderer.domElement.addEventListener('mouseup',onMouseUp);
 
 // ── Update displays ──
 function updateHUD(delta,result){
-  const sCurr=splineProgress(dronePos,targetGate,spline);
+  const sCurr=splineProgress(dronePos,targetGate,spline,liveConfig);
   document.getElementById('v-pos').textContent=`(${dronePos[0].toFixed(1)}, ${dronePos[1].toFixed(1)}, ${dronePos[2].toFixed(1)})`;
   document.getElementById('v-gate').textContent=`G${targetGate}`;
   document.getElementById('v-scurr').textContent=sCurr.toFixed(4);
   document.getElementById('v-sprev').textContent=sPrev.toFixed(4);
   const latDev=result?result.lateralDev:0;
   document.getElementById('v-latdev').textContent=latDev.toFixed(2)+'m';
-  document.getElementById('v-latdev').style.color=latDev>CONFIG.gateWidth/2?'#f44336':'#4caf50';
+  document.getElementById('v-latdev').style.color=latDev>liveConfig.gateWidth/2?'#f44336':'#4caf50';
   const devPen=result?result.deviationPenalty||0:0;
   const devPenEl=document.getElementById('v-devpen');
   devPenEl.textContent=devPen<0?devPen.toFixed(4):'0.0000';

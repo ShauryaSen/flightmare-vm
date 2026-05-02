@@ -1,0 +1,23 @@
+# Track: Circle-4
+# 4 gates evenly spaced on a 12m-radius circle, constant z=3m.
+# CCW traversal. Gate normals = circle tangent (yaw_i = 90 + theta_i deg).
+# No altitude variation, no direction reversals — minimal curriculum step
+# above straight-3.
+
+description: "Circle-4 — 4 gates on a 12m circle at z=3m. Easy curriculum."
+
+start_pos: [12.0, -4.0, 3.0]
+
+gates:
+# theta = 0 deg
+- position: [12.0, 0.0, 3.0]
+  rotation: [90.0, 0.0, 0.0]
+# theta = 90 deg
+- position: [0.0, 12.0, 3.0]
+  rotation: [180.0, 0.0, 0.0]
+# theta = 180 deg
+- position: [-12.0, 0.0, 3.0]
+  rotation: [270.0, 0.0, 0.0]
+# theta = 270 deg
+- position: [0.0, -12.0, 3.0]
+  rotation: [0.0, 0.0, 0.0]

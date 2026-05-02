@@ -1,0 +1,12 @@
+# Track: Single-1
+# Rung 0 of the curriculum. One gate 8 m straight ahead at constant altitude.
+# Tests the absolute minimum: can the policy fly forward and pass one gate?
+# If this fails it's a dynamics/reward problem, not a track problem.
+
+description: "Single-1 — one gate 8m along +X at z=10m. Smoke test."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]   # [yaw_deg, pitch_deg, roll_deg]

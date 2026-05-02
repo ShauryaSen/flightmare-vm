@@ -36,7 +36,7 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
   quad_state_.setZero();
   quad_act_.setZero();
 
-  if (random && num_gates_ > 0) {
+  if (random && num_gates_ > 0 && distributed_init_) {
     // ══════════════════════════════════════════════════════════════
     // IROS 2021 Distributed Initialization (Paper L247-261)
     //
@@ -135,7 +135,7 @@ bool QuadrotorEnv::reset(Ref<Vector<>> obs, const bool random) {
       quad_state_.x(QS::ATTZ) = uniform_dist_(random_gen_) * 0.1;
       quad_state_.qx /= quad_state_.qx.norm();
     }
-  } else if (random) {
+  } else if (random && num_gates_ == 0) {
     // No gates: random position
     quad_state_.x(QS::POSX) = uniform_dist_(random_gen_);
     quad_state_.x(QS::POSY) = uniform_dist_(random_gen_);
@@ -293,11 +293,16 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
   last_safety_reward_ = 0.0;
   last_body_rate_penalty_ = 0.0;
   last_deviation_penalty_ = 0.0;
+  last_survival_bonus_ = 0.0;
+  last_gate_bonus_ = 0.0;
 
   if (num_gates_ > 0) {
     // 1. Progress Reward (Paper Eq. 2): r_p = s(p_t) - s(p_{t-1}), unclamped.
     //    Uses spline-based progress for correct curved-path tracking.
-    Scalar s_curr = spline_progress(quad_state_.p, current_gate_idx_);
+    //    Reuse the brute-force nearest-sample distance via out-param so the
+    //    deviation-penalty branch below doesn't pay for the same scan twice.
+    Scalar dev_raw = Scalar(0);
+    Scalar s_curr = spline_progress(quad_state_.p, current_gate_idx_, &dev_raw);
     Scalar progress = s_curr - s_prev_;
     last_progress_reward_ = progress;
     total_reward += progress;
@@ -307,11 +312,11 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
     // deviation *changes*), this fires every step the drone is far from the
     // track, preventing it from cruising parallel at a large constant offset.
     if (deviation_penalty_coeff_ > 0.0) {
-      Scalar dev = spline_nearest_dist(quad_state_.p, current_gate_idx_);
+      Scalar dev = dev_raw;
       Scalar threshold = gate_width_ / Scalar(2.0);
       if (dev > threshold) {
         Scalar excess = dev - threshold;
-        last_deviation_penalty_ = -deviation_penalty_coeff_ * excess * excess;
+        last_deviation_penalty_ = -deviation_penalty_coeff_ * excess;
         total_reward += last_deviation_penalty_;
       }
     }
@@ -365,6 +370,13 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
         total_gates_passed_++;
         current_gate_idx_ = (current_gate_idx_ + 1) % num_gates_;
         s_prev_ = spline_progress(quad_state_.p, current_gate_idx_);
+        // Gate-pass bonus: sharp one-shot reward that breaks the hover-trap.
+        // Hovering yields a constant survival bonus per step but never earns
+        // this; only forward flight through the opening does.
+        if (gate_bonus_ > 0.0) {
+          last_gate_bonus_ = gate_bonus_;
+          total_reward += last_gate_bonus_;
+        }
       }
       // If outside the opening, do nothing — no collision penalty.
     } else {
@@ -385,7 +397,16 @@ Scalar QuadrotorEnv::step(const Ref<Vector<>> act, Ref<Vector<>> obs) {
     total_reward += last_body_rate_penalty_;
   }
 
-  // Reward = progress + safety + body-rate penalty.
+  // 5. Survival bonus — flat per-step reward for staying airborne.
+  // Off by default (paper-faithful) but can be turned on per-track via YAML
+  // to bootstrap a policy that hasn't yet learned altitude maintenance
+  // (curriculum aid; see TRACK_CURRICULUM_PLAN §6).
+  if (survival_bonus_ > 0.0) {
+    last_survival_bonus_ = survival_bonus_;
+    total_reward += last_survival_bonus_;
+  }
+
+  // Reward = progress + safety + body-rate penalty + (optional) survival.
   // No gate collision penalty or termination — only progress matters.
 
   last_total_reward_ = total_reward;
@@ -404,10 +425,13 @@ bool QuadrotorEnv::isTerminalState(Scalar &reward) {
   //   4 = timeout (t >= max_t)
   bool terminal = false;
   term_reason_ = 0;
+  last_crash_penalty_ = 0.0;
   if (quad_state_.x(QS::POSZ) <= 0.02) {
-    reward = 0.0; terminal = true; term_reason_ = 2;
+    reward = crash_penalty_; last_crash_penalty_ = crash_penalty_;
+    terminal = true; term_reason_ = 2;
   } else if (quad_state_.p.norm() > 100.0) {
-    reward = 0.0; terminal = true; term_reason_ = 3;
+    reward = crash_penalty_; last_crash_penalty_ = crash_penalty_;
+    terminal = true; term_reason_ = 3;
   } else if (cmd_.t >= max_t_) {
     reward = 0.0; terminal = true; term_reason_ = 4;
   } else {
@@ -516,11 +540,15 @@ bool QuadrotorEnv::loadParam(const YAML::Node &cfg) {
     if (cfg["rl"]["safety_coeff"]) safety_a_ = cfg["rl"]["safety_coeff"].as<Scalar>();
     if (cfg["rl"]["safety_d_max"]) safety_d_max_ = cfg["rl"]["safety_d_max"].as<Scalar>();
     // Distributed init params
+    if (cfg["rl"]["distributed_init"]) distributed_init_ = cfg["rl"]["distributed_init"].as<bool>();
     if (cfg["rl"]["traj_init_threshold"]) traj_init_threshold_ = cfg["rl"]["traj_init_threshold"].as<Scalar>();
     if (cfg["rl"]["traj_init_fraction"]) traj_init_fraction_ = cfg["rl"]["traj_init_fraction"].as<Scalar>();
     if (cfg["rl"]["traj_init_min_episodes"]) traj_init_min_episodes_ = cfg["rl"]["traj_init_min_episodes"].as<int>();
     if (cfg["rl"]["spline_deviation_ratio"]) spline_deviation_ratio_ = cfg["rl"]["spline_deviation_ratio"].as<Scalar>();
     if (cfg["rl"]["deviation_penalty_coeff"]) deviation_penalty_coeff_ = cfg["rl"]["deviation_penalty_coeff"].as<Scalar>();
+    if (cfg["rl"]["survival_bonus"]) survival_bonus_ = cfg["rl"]["survival_bonus"].as<Scalar>();
+    if (cfg["rl"]["gate_bonus"]) gate_bonus_ = cfg["rl"]["gate_bonus"].as<Scalar>();
+    if (cfg["rl"]["crash_penalty"]) crash_penalty_ = cfg["rl"]["crash_penalty"].as<Scalar>();
   } else {
     logger_.error("Missing rl config section");
     return false;
@@ -625,13 +653,20 @@ void QuadrotorEnv::buildTrackSpline() {
                std::to_string(spline_deviation_ratio_));
 }
 
-Scalar QuadrotorEnv::spline_progress(const Vector<3>& pos, int target_gate_idx) {
+Scalar QuadrotorEnv::spline_progress(const Vector<3>& pos, int target_gate_idx,
+                                     Scalar* out_raw_dist) {
   // Find the nearest point on the spline segment leading to target_gate_idx.
   // Returns: (arc_length_of_nearest - segment_start) - ratio * lateral_deviation
   //
   // The score is relative to the segment start (0 at previous gate/start),
   // so moving backward within the segment yields negative values.
   // Lateral deviation is penalized proportionally to spline_deviation_ratio_.
+  //
+  // out_raw_dist (optional): pre-refinement nearest-sample distance, identical
+  // to what spline_nearest_dist() returns. Lets callers reuse the brute-force
+  // scan instead of paying for it twice.
+
+  if (out_raw_dist) *out_raw_dist = Scalar(0);
 
   if (target_gate_idx < 0 || target_gate_idx >= num_gates_) return Scalar(0);
   const auto& seg = spline_segments_[target_gate_idx];
@@ -652,6 +687,7 @@ Scalar QuadrotorEnv::spline_progress(const Vector<3>& pos, int target_gate_idx) 
   // to get sub-sample accuracy
   Scalar best_arc = seg.arc_lengths[best_idx];
   Scalar best_dist = std::sqrt(best_dist_sq);
+  if (out_raw_dist) *out_raw_dist = best_dist;
 
   // Try refining against the neighboring segments for better accuracy
   for (int offset = -1; offset <= 1; offset += 2) {
@@ -706,6 +742,9 @@ void QuadrotorEnv::updateExtraInfo() {
   extra_info_["r_safety"] = last_safety_reward_;
   extra_info_["r_bodyrate"] = last_body_rate_penalty_;
   extra_info_["r_deviation"] = last_deviation_penalty_;
+  extra_info_["r_survival"] = last_survival_bonus_;
+  extra_info_["r_gate_bonus"] = last_gate_bonus_;
+  extra_info_["r_crash_penalty"] = last_crash_penalty_;
   extra_info_["r_total"] = last_total_reward_;
   extra_info_["gate_idx"] = Scalar(current_gate_idx_);
   extra_info_["s_prev"] = s_prev_;

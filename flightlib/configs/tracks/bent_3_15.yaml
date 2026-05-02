@@ -1,0 +1,20 @@
+# Track: Bent-3 (15° per gate)
+# Rung 3. Three gates with a 15° heading change at each gate. Each gate's
+# yaw matches the direction of the segment entering it, so the spline tangent
+# is aligned with the gate normal.
+# Heading sequence: 0° → 15° → 30°. Inter-gate spacing 8 m.
+
+description: "Bent-3-15 — 3 gates with 15° bend per gate at z=10m."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+# G0: 8m along heading 0°, gate yaw = 0° (entering direction)
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]
+# G1: 8m along heading 15° from G0, gate yaw = 15°
+- position: [15.727, 2.071, 10.0]
+  rotation: [15.0, 0.0, 0.0]
+# G2: 8m along heading 30° from G1, gate yaw = 30°
+- position: [22.656, 6.071, 10.0]
+  rotation: [30.0, 0.0, 0.0]

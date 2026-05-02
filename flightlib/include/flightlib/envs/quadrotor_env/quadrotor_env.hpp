@@ -144,6 +144,7 @@ class QuadrotorEnv final : public EnvBase {
   int traj_init_min_episodes_{200};  // per-env episode floor before transition is even considered
   bool use_traj_init_{false};        // are we in Phase 2?
   Scalar traj_init_fraction_{0.5};   // fraction of resets using traj buffer in Phase 2
+  bool distributed_init_{true};      // master switch — false = always reset to start_pos_
   long total_steps_{0};              // cumulative steps across all episodes
 
   // ── Acceleration tracking (for v̇_WB obs) ──
@@ -158,12 +159,18 @@ class QuadrotorEnv final : public EnvBase {
   bool is_gate_collision_{false};      // flag for gate collision terminal
   Scalar terminal_reward_{0.0};        // r_T (Eq. 5) computed on gate collision
   Scalar deviation_penalty_coeff_{0.01}; // per-step quadratic penalty beyond gate_radius
+  Scalar survival_bonus_{0.0};          // flat per-step bonus while alive (curriculum aid for rung 0; default 0 = paper-faithful)
+  Scalar gate_bonus_{0.0};              // one-shot bonus on gate pass (curriculum aid; breaks the hover-trap by making gate passes much sharper than survival)
+  Scalar crash_penalty_{0.0};           // terminal penalty on ground crash / OOB (curriculum aid; default 0 = paper-faithful)
 
   // ── Reward component tracking (for extra_info logging) ──
   Scalar last_progress_reward_{0.0};
   Scalar last_safety_reward_{0.0};
   Scalar last_body_rate_penalty_{0.0};
   Scalar last_deviation_penalty_{0.0};
+  Scalar last_survival_bonus_{0.0};
+  Scalar last_gate_bonus_{0.0};
+  Scalar last_crash_penalty_{0.0};
   Scalar last_total_reward_{0.0};
   int term_reason_{0};  // 0=running, 1=gate_collision, 2=ground, 3=oob, 4=timeout
 
@@ -173,7 +180,8 @@ class QuadrotorEnv final : public EnvBase {
   static constexpr int kSplineSamplesPerSegment = 200;
 
   void buildTrackSpline();  // called from loadParam() after gates are loaded
-  Scalar spline_progress(const Vector<3>& pos, int target_gate_idx);
+  Scalar spline_progress(const Vector<3>& pos, int target_gate_idx,
+                         Scalar* out_raw_dist = nullptr);
   Scalar spline_nearest_dist(const Vector<3>& pos, int target_gate_idx);
 
   // observations and actions (for RL)

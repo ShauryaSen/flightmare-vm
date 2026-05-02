@@ -1,6 +1,6 @@
 env:
   seed: 1
   scene_id: 0
-  num_envs: 100
+  num_envs: 200
   num_threads: 14
   render: no

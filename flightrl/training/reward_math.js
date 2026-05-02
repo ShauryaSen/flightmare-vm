@@ -1,26 +1,32 @@
 // reward_math.js — exact port of C++ QuadrotorEnv reward logic
 // Matches: quadrotor_env.cpp buildTrackSpline() + spline_progress()
 
+// Helper: Euler [yaw,pitch,roll] (degrees) → quaternion [w,x,y,z]
+function eulerToQuat(yawDeg, pitchDeg, rollDeg) {
+  const [y,p,r] = [yawDeg, pitchDeg, rollDeg].map(d => d * Math.PI / 180);
+  const cy=Math.cos(y/2), sy=Math.sin(y/2);
+  const cp=Math.cos(p/2), sp=Math.sin(p/2);
+  const cr=Math.cos(r/2), sr=Math.sin(r/2);
+  return [
+    cy*cp*cr + sy*sp*sr,  // w
+    cy*cp*sr - sy*sp*cr,  // x
+    sy*cp*sr + cy*sp*cr,  // y
+    sy*cp*cr - cy*sp*sr   // z
+  ];
+}
+
 export const CONFIG = {
-  startPos: [17.4, -5.0, 6.31],
+  startPos: [0.0, 0.0, 5.0],
   gateWidth: 5,
-  splineDeviationRatio: 1.5,
-  deviationPenaltyCoeff: 0.01,
+  splineDeviationRatio: 0.5,
+  deviationPenaltyCoeff: 0.0,
   bodyRateCoeff: 0.0005,
   safetyCoeff: 0.0,
   safetyDMax: 1.5,
   gates: [
-    { pos: [17.25, 3.63, 6.31], quat: [0.7399242044980668, 0.011581198096193812, -0.012742889663570194, 0.6724698255026628] },
-    { pos: [15.81, 11.49, 4.87], quat: [0.4178, -0.0773, 0.0357, 0.9046] },
-    { pos: [8.28, 14.18, 3.43], quat: [0.0894, 0.0848, 0.0076, -0.9924] },
-    { pos: [2.20, 9.00, 1.99], quat: [0.6767607538136899, -0.020071138933028868, -0.018463233851244758, -0.7356977235762059] },
-    { pos: [-7.31, -12.14, 3.23], quat: [0.5489392989243054, -0.005591023608941385, -0.0036719339571304396, -0.8358354523783439] },
-    { pos: [-7.61, -28.47, 2.64], quat: [0.8675806243752933, 0.017934150987913768, 0.03137074171758188, -0.4959819583422445] },
-    { pos: [-0.01, -33.91, 2.10], quat: [0.998425348623773, 0.00029584413315685845, -0.005289170362916548, 0.05584586268129906] },
-    { pos: [5.87, -28.44, 2.57], quat: [0.8606956628855412, 0.013573947951699823, -0.02297911752200398, 0.50841979110272] },
-    { pos: [7.25, -11.79, 2.55], quat: [0.5425898966059537, -0.014531641495382797, 0.009388590420559003, 0.8398195579209294] },
-    { pos: [-10.23, 7.77, 2.02], quat: [0.5201707829903365, 0.004834159805478233, -0.002944333232843624, 0.8540435107908785] },
-    { pos: [-10.05, 30.62, 2.90], quat: [0.7753291124908203, 0.01491979592960568, -0.018329070193316095, 0.6311150546449233] },
+    { pos: [8.0, 0.0, 5.0], quat: eulerToQuat(0, 0, 0) },
+    { pos: [15.727, 2.071, 5.0], quat: eulerToQuat(15, 0, 0) },
+    { pos: [22.656, 6.071, 5.0], quat: eulerToQuat(30, 0, 0) },
   ]
 };
 
@@ -132,7 +138,7 @@ export function computeRewardDelta(prevPos, currPos, targetGateIdx, spline, conf
   const threshold = config.gateWidth / 2;
   if (config.deviationPenaltyCoeff > 0 && lateralDev > threshold) {
     const excess = lateralDev - threshold;
-    deviationPenalty = -config.deviationPenaltyCoeff * excess * excess;
+    deviationPenalty = -config.deviationPenaltyCoeff * excess;
   }
 
   const progress = sCurr - sPrev + deviationPenalty;

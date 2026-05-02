@@ -1,0 +1,21 @@
+{
+  "run_dir": "/home/ssen/flightmare/flightrl/training/sweep/runs/02_harsh_crash",
+  "total_timesteps": 25000000,
+  "train_seconds": 2526.01198720932,
+  "fps": 9897.023500517678,
+  "ent_coef": 0.01,
+  "learning_rate": 0.0003,
+  "seed": 42,
+  "train_error": null,
+  "final_ep_rew_mean": 10.786757912980974,
+  "final_ep_len_mean": 58.12,
+  "final_ep_max_gate_mean": 6.05,
+  "best_ep_rew_mean": 14.633641100340755,
+  "slope_last_2M": 0.3891867488815502,
+  "eval_completed": 10,
+  "eval_mean_reward": 18.4516603841912,
+  "eval_mean_length": 113.0,
+  "eval_mean_max_gate": 2.0,
+  "eval_max_gate_idx": 2.0,
+  "eval_lap_completed": false
+}

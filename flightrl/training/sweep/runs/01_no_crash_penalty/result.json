@@ -1,0 +1,21 @@
+{
+  "run_dir": "/home/ssen/flightmare/flightrl/training/sweep/runs/01_no_crash_penalty",
+  "total_timesteps": 25000000,
+  "train_seconds": 2508.2408022880554,
+  "fps": 9967.14509117092,
+  "ent_coef": 0.01,
+  "learning_rate": 0.0003,
+  "seed": 42,
+  "train_error": null,
+  "final_ep_rew_mean": 10.322515078037977,
+  "final_ep_len_mean": 62.53,
+  "final_ep_max_gate_mean": 6.47,
+  "best_ep_rew_mean": 12.298686885192291,
+  "slope_last_2M": 1.9923773383283976,
+  "eval_completed": 10,
+  "eval_mean_reward": 17.233811870450154,
+  "eval_mean_length": 136.0,
+  "eval_mean_max_gate": 2.0,
+  "eval_max_gate_idx": 2.0,
+  "eval_lap_completed": false
+}

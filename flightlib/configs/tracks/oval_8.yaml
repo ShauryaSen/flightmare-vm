@@ -1,0 +1,35 @@
+# Track: Oval-8
+# 8 gates on an ellipse (a=18, b=10), constant z=3m, CCW.
+# Tangent yaw at angle theta on ellipse: atan2(b*cos(theta), -a*sin(theta)).
+# Variable curvature (tighter at the ends, wider on the long sides) — a step
+# up from a uniform circle without introducing reversals or altitude changes.
+
+description: "Oval-8 — 8 gates on an 18x10m ellipse at z=3m."
+
+start_pos: [18.0, -4.0, 3.0]
+
+gates:
+# theta = 0 deg → pos (18, 0), tangent (0, 10), yaw = 90
+- position: [18.0, 0.0, 3.0]
+  rotation: [90.0, 0.0, 0.0]
+# theta = 45 deg → pos (12.728, 7.071), tangent (-12.728, 7.071), yaw = 150.94
+- position: [12.728, 7.071, 3.0]
+  rotation: [150.94, 0.0, 0.0]
+# theta = 90 deg → pos (0, 10), tangent (-18, 0), yaw = 180
+- position: [0.0, 10.0, 3.0]
+  rotation: [180.0, 0.0, 0.0]
+# theta = 135 deg → pos (-12.728, 7.071), tangent (-12.728, -7.071), yaw = 209.06
+- position: [-12.728, 7.071, 3.0]
+  rotation: [209.06, 0.0, 0.0]
+# theta = 180 deg → pos (-18, 0), tangent (0, -10), yaw = 270
+- position: [-18.0, 0.0, 3.0]
+  rotation: [270.0, 0.0, 0.0]
+# theta = 225 deg → pos (-12.728, -7.071), tangent (12.728, -7.071), yaw = 330.94
+- position: [-12.728, -7.071, 3.0]
+  rotation: [330.94, 0.0, 0.0]
+# theta = 270 deg → pos (0, -10), tangent (18, 0), yaw = 0
+- position: [0.0, -10.0, 3.0]
+  rotation: [0.0, 0.0, 0.0]
+# theta = 315 deg → pos (12.728, -7.071), tangent (12.728, 7.071), yaw = 29.06
+- position: [12.728, -7.071, 3.0]
+  rotation: [29.06, 0.0, 0.0]

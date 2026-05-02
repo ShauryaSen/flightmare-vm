@@ -1,0 +1,138 @@
+# ─────────────────────────────────────────────────────────────────
+# IROS 2021 Gate Racing Configuration — Split-S Track
+# Source: Original IROS 2021 paper track files (tracks/SplitS.yaml)
+# ─────────────────────────────────────────────────────────────────
+
+quadrotor_env:
+  camera: no
+  sim_dt: 0.02
+  max_t: 30.0        # 30 seconds per episode
+  add_camera: yes
+
+quadrotor_dynamics:
+  # Paper experiments.tex L44: J = diag(0.003, 0.003, 0.005), κ = 0.01, l = 0.17
+  mass: 0.73
+  arm_l: 0.17
+  inertia: [0.003, 0.003, 0.005]
+  motor_omega_min: 150.0
+  motor_omega_max: 3000.0
+  motor_tau: 0.0001
+  thrust_map: [1.3298253500372891e-06, 0.0038360810526746033, 
+      -1.7689986848125325]
+  kappa: 0.01
+  omega_max: [6.0, 6.0, 6.0]
+
+# ─── Start Position ───────────────────────────────────────
+start_pos: [17.4, -5., 6.31]
+
+# ─── Gate Course: AlphaPilot Track ─────────────────────────
+# Positions are in world frame [x, y, z] (Z=up).
+# Rotations use quaternion format [w, x, y, z].
+# C++ computes gate normal as R(q) * [1,0,0] and stores the full
+# rotation matrix for gate-frame observations.
+# gates:
+#   - position: [17.251110, 3.631499, 6.306498]       # Gate1
+#     rotation_quat: [0.7071270, 0.0, 0.0, -0.7070865]
+#   - position: [16.749825, 39.569970, 6.762500]       # Gate2
+#     rotation_quat: [0.9238791, 0.0, 0.0, -0.3826845]
+#   - position: [2.329821, 27.867970, 2.546500]        # Gate3
+#     rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+#   - position: [2.199832, 9.001728, 1.993750]          # Gate4
+#     rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+#   - position: [-7.308671, -12.136780, 3.229941]       # Gate5
+#     rotation_quat: [0.7071068, 0.0, 0.0, 0.7071068]
+#   - position: [-7.610180, -28.472035, 2.642500]       # Gate6
+#     rotation_quat: [-0.3826836, 0.0, 0.0, -0.9238794]
+#   - position: [-0.009001, -33.913000, 2.103112]       # Gate7
+#     rotation_quat: [-0.0000263, 0.0, 0.0, -1.0000000]
+#   - position: [5.867821, -28.440035, 2.567500]        # Gate8
+#     rotation_quat: [0.3826835, 0.0, 0.0, -0.9238795]
+#   - position: [7.249821, -11.792030, 2.546500]        # Gate9
+#     rotation_quat: [0.7071068, 0.0, 0.0, -0.7071068]
+#   - position: [-10.228670, 7.773226, 2.019941]        # Gate10
+#     rotation_quat: [0.7071270, 0.0, 0.0, -0.7070865]
+#   - position: [-10.048670, 30.623225, 2.897941]       # Gate11
+#     rotation_quat: [0.7071323, 0.0, 0.0, -0.7070812]
+
+gates:
+- position: [17.25, 3.63, 6.31]
+  rotation_quat:
+  - 0.7399242044980668
+  - 0.011581198096193812
+  - -0.012742889663570194
+  - 0.6724698255026628
+- position: [15.81, 18.49, 4.87]
+  rotation_quat:
+  - 0.4178
+  - -0.0773
+  - 0.0357
+  - 0.9046
+- position: [6.28, 23.18, 3.43]
+  rotation_quat:
+  - 0.0894
+  - 0.0848
+  - 0.0076
+  - -0.9924
+- position: [2.20, 9.00, 1.99]
+  rotation_quat:
+  - 0.6767607538136899
+  - -0.020071138933028868
+  - -0.018463233851244758
+  - -0.7356977235762059
+- position: [-7.31, -12.14, 3.23]
+  rotation_quat:
+  - 0.5489392989243054
+  - -0.005591023608941385
+  - -0.0036719339571304396
+  - -0.8358354523783439
+- position: [-7.61, -28.47, 2.64]
+  rotation_quat:
+  - 0.8675806243752933
+  - 0.017934150987913768
+  - 0.03137074171758188
+  - -0.4959819583422445
+- position: [-0.01, -33.91, 2.10]
+  rotation_quat:
+  - 0.998425348623773
+  - 0.00029584413315685845
+  - -0.005289170362916548
+  - 0.05584586268129906
+- position: [5.87, -28.44, 2.57]
+  rotation_quat:
+  - 0.8606956628855412
+  - 0.013573947951699823
+  - -0.02297911752200398
+  - 0.50841979110272
+- position: [7.25, -11.79, 2.55]
+  rotation_quat:
+  - 0.5425898966059537
+  - -0.014531641495382797
+  - 0.009388590420559003
+  - 0.8398195579209294
+- position: [-10.23, 7.77, 2.02]
+  rotation_quat:
+  - 0.5201707829903365
+  - 0.004834159805478233
+  - -0.002944333232843624
+  - 0.8540435107908785
+- position: [-10.05, 30.62, 2.90]
+  rotation_quat:
+  - 0.7753291124908203
+  - 0.01491979592960568
+  - -0.018329070193316095
+  - 0.6311150546449233
+rl:
+  act_coeff: 0.0             # NOT in paper Eq.4 — kept at 0 for faithfulness
+  gate_bonus: 20.0           # NOT in paper Eq.4 — kept at 0
+  survival_bonus: 0.0        # NOT in paper Eq.4 — kept at 0
+  crash_penalty: -5.0         # NOT in paper Eq.4 — only r_T (gate collision) terminates with reward
+  body_rate_coeff: 0.0005    # b·‖ω‖² penalty (paper Eq. 4)
+  body_rate_anneal_steps: 5000000  # steps to anneal b → 0 (paper L140: "added at an initial training stage")
+  gate_width: 5            # w_g — increased for easier learning (was 3)
+  safety_coeff: 0.0          # a in paper Eq. 4 — disabled until base policy works
+  safety_d_max: 1.5          # d_max for safety reward activation (meters)
+  traj_init_threshold: 0.6   # mean gates/episode required to switch to Phase 2 (NOT a probability)
+  traj_init_fraction: 0.5    # fraction of Phase 2 resets from traj buffer
+  traj_init_min_episodes: 200  # per-env episode floor before Phase 2 is considered
+  spline_deviation_ratio: 1.5  # progress penalty per meter of lateral deviation from spline
+  deviation_penalty_coeff: 0.01  # per-step quadratic penalty for dev > gate_width/2

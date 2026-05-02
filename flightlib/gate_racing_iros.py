@@ -147,7 +147,7 @@ def train(args):
         # PPO clipping
         clip_range=0.2,
         # Regularization
-        ent_coef=0.01,  # entropy bonus for exploration
+        ent_coef=0.05,  # entropy bonus for exploration
         vf_coef=0.5,
         max_grad_norm=0.5,
         # Network architecture (2-layer MLP, same as paper)

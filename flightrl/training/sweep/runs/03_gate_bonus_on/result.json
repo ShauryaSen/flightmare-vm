@@ -1,0 +1,21 @@
+{
+  "run_dir": "/home/ssen/flightmare/flightrl/training/sweep/runs/03_gate_bonus_on",
+  "total_timesteps": 25000000,
+  "train_seconds": 2527.197253227234,
+  "fps": 9892.381755351693,
+  "ent_coef": 0.01,
+  "learning_rate": 0.0003,
+  "seed": 42,
+  "train_error": null,
+  "final_ep_rew_mean": 9.73581812873832,
+  "final_ep_len_mean": 67.49,
+  "final_ep_max_gate_mean": 6.26,
+  "best_ep_rew_mean": 13.08536950298876,
+  "slope_last_2M": 0.8679384844464941,
+  "eval_completed": 10,
+  "eval_mean_reward": -4.740087065612897,
+  "eval_mean_length": 135.0,
+  "eval_mean_max_gate": 2.0,
+  "eval_max_gate_idx": 2.0,
+  "eval_lap_completed": false
+}

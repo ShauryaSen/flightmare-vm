@@ -1,0 +1,7 @@
+{
+  "name": "05_dev_coeff_high",
+  "rl": {
+    "deviation_penalty_coeff": 0.1
+  },
+  "ppo": {}
+}

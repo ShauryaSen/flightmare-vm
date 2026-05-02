@@ -1,0 +1,7 @@
+{
+  "name": "04_gate_bonus_big",
+  "rl": {
+    "gate_bonus": 20.0
+  },
+  "ppo": {}
+}

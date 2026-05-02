@@ -1,0 +1,38 @@
+# Track: Helix-8
+# Rung 11. 8 gates on a 12m-radius helix, CCW, climbing 4m total over one
+# revolution (0.5m per gate). Combines sustained turning with sustained climb
+# — the first track that loads both axes simultaneously.
+#
+# Gate yaw = 90° + theta (tangent direction in xy).
+# Per-segment horizontal arc ≈ 2*pi*12/8 ≈ 9.42m, dz = 0.5m,
+#   so climb angle ≈ atan2(0.5, 9.42) ≈ 3.04°. Normal-up → NEGATIVE pitch.
+
+description: "Helix-8 — 12m radius, CCW, 4m climb over one revolution. Turn + climb."
+
+start_pos: [12.0, -4.0, 3.0]
+
+gates:
+# i=0 theta=0°,  z=3.5
+- position: [12.0, 0.0, 3.5]
+  rotation: [90.0, -3.04, 0.0]
+# i=1 theta=45°, z=4.0
+- position: [8.485, 8.485, 4.0]
+  rotation: [135.0, -3.04, 0.0]
+# i=2 theta=90°, z=4.5
+- position: [0.0, 12.0, 4.5]
+  rotation: [180.0, -3.04, 0.0]
+# i=3 theta=135°, z=5.0
+- position: [-8.485, 8.485, 5.0]
+  rotation: [225.0, -3.04, 0.0]
+# i=4 theta=180°, z=5.5
+- position: [-12.0, 0.0, 5.5]
+  rotation: [270.0, -3.04, 0.0]
+# i=5 theta=225°, z=6.0
+- position: [-8.485, -8.485, 6.0]
+  rotation: [315.0, -3.04, 0.0]
+# i=6 theta=270°, z=6.5
+- position: [0.0, -12.0, 6.5]
+  rotation: [0.0, -3.04, 0.0]
+# i=7 theta=315°, z=7.0
+- position: [8.485, -8.485, 7.0]
+  rotation: [45.0, -3.04, 0.0]

@@ -1,0 +1,14 @@
+# Track: Straight-2
+# Rung 1. Two gates straight along +X at constant altitude. The novel test
+# vs. single_1 is "can the policy keep going past gate 0 to gate 1" — not just
+# pass one gate and crash.
+
+description: "Straight-2 — two gates along +X at z=10m. Past-the-first-gate test."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [16.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]

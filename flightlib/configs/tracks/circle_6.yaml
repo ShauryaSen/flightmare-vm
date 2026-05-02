@@ -1,0 +1,28 @@
+# Track: Circle-6
+# 6 gates evenly spaced on a 15m-radius circle, constant z=3m.
+# CCW traversal. Gate normals = circle tangent (yaw_i = 90 + theta_i deg).
+# Slightly tighter turn rate than circle_4 (60 deg between gates vs 90).
+
+description: "Circle-6 — 6 gates on a 15m circle at z=3m."
+
+start_pos: [15.0, -4.0, 3.0]
+
+gates:
+# theta = 0 deg
+- position: [15.0, 0.0, 3.0]
+  rotation: [90.0, 0.0, 0.0]
+# theta = 60 deg
+- position: [7.5, 12.99, 3.0]
+  rotation: [150.0, 0.0, 0.0]
+# theta = 120 deg
+- position: [-7.5, 12.99, 3.0]
+  rotation: [210.0, 0.0, 0.0]
+# theta = 180 deg
+- position: [-15.0, 0.0, 3.0]
+  rotation: [270.0, 0.0, 0.0]
+# theta = 240 deg
+- position: [-7.5, -12.99, 3.0]
+  rotation: [330.0, 0.0, 0.0]
+# theta = 300 deg
+- position: [7.5, -12.99, 3.0]
+  rotation: [30.0, 0.0, 0.0]

@@ -1,0 +1,9 @@
+{
+  "name": "11_combo_racing_line",
+  "rl": {
+    "deviation_penalty_coeff": 0.001
+  },
+  "ppo": {
+    "ent_coef": 0.05
+  }
+}

@@ -1,0 +1,16 @@
+# Track: Straight-3
+# 3 gates in a straight line along +X at constant altitude.
+# Simplest possible sanity track — should converge in a few minutes.
+# Drone faces +X at start, all gate normals = (1, 0, 0).
+
+description: "Straight-3 — three gates along +X at z=10m. Smoke test."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]   # [yaw_deg, pitch_deg, roll_deg]
+- position: [16.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [24.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]

@@ -1,0 +1,20 @@
+# Track: Bent-3 (45° per gate)
+# Rung 5. Three gates with a 45° heading change at each gate.
+# Heading sequence: 0° → 45° → 90°. Inter-gate spacing 8 m.
+# This is approaching the limit of "transient" turning — at 45° per gate the
+# drone has only 8m of straight to set up the new heading.
+
+description: "Bent-3-45 — 3 gates with 45° bend per gate at z=10m."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+# G0: 8m along heading 0°
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]
+# G1: 8m along heading 45° from G0
+- position: [13.657, 5.657, 10.0]
+  rotation: [45.0, 0.0, 0.0]
+# G2: 8m along heading 90° from G1
+- position: [13.657, 13.657, 10.0]
+  rotation: [90.0, 0.0, 0.0]

@@ -1,0 +1,17 @@
+# Track: Vertical-3
+# Rung 10. 3 gates in a straight line along +X with a 3m altitude rise total
+# (1m per gate). Tests vertical control without the complication of turning.
+# Climb angle = atan2(1, 8) ≈ 7.13°. In our ZYX Euler convention, normal_z =
+# -sin(pitch); a normal pointing slightly UP requires NEGATIVE pitch.
+
+description: "Vertical-3 — 3 gates straight along +X with 3m total climb."
+
+start_pos: [0.0, 0.0, 3.0]
+
+gates:
+- position: [8.0, 0.0, 4.0]
+  rotation: [0.0, -7.13, 0.0]
+- position: [16.0, 0.0, 5.0]
+  rotation: [0.0, -7.13, 0.0]
+- position: [24.0, 0.0, 6.0]
+  rotation: [0.0, -7.13, 0.0]

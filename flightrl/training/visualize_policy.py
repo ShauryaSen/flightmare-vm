@@ -109,6 +109,19 @@ def quat_to_R(w, x, y, z):
     ])
 
 
+def euler_to_R(yaw_deg, pitch_deg, roll_deg):
+    """ZYX Euler (degrees) → rotation matrix. Matches quadrotor_env.cpp:502-514."""
+    y, p, r = np.radians([yaw_deg, pitch_deg, roll_deg])
+    cy, sy = np.cos(y), np.sin(y)
+    cp, sp = np.cos(p), np.sin(p)
+    cr, sr = np.cos(r), np.sin(r)
+    return np.array([
+        [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+        [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+        [-sp,   cp*sr,            cp*cr            ]
+    ])
+
+
 def load_config(config_path: str):
     """Load gate positions, normals, rotation matrices, and start position from the YAML config."""
     yaml = ruamel.yaml.YAML()
@@ -122,11 +135,13 @@ def load_config(config_path: str):
         if "rotation_quat" in g:
             q = g["rotation_quat"]
             R = quat_to_R(float(q[0]), float(q[1]), float(q[2]), float(q[3]))
-            normal = R[:, 0]  # R * [1,0,0] — gate fly-through direction
-            normal = normal / np.linalg.norm(normal)
+        elif "rotation" in g:
+            r = g["rotation"]
+            R = euler_to_R(float(r[0]), float(r[1]), float(r[2]))
         else:
             R = np.eye(3)
-            normal = np.array([1.0, 0.0, 0.0])
+        normal = R[:, 0]
+        normal = normal / np.linalg.norm(normal)
         gate_normals.append(normal)
         gate_rotmats.append(R)
     gates = np.array(gates, dtype=np.float32)

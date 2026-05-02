@@ -1,0 +1,18 @@
+# Track: Bent-3 (30° per gate)
+# Rung 4. Three gates with a 30° heading change at each gate.
+# Heading sequence: 0° → 30° → 60°. Inter-gate spacing 8 m.
+
+description: "Bent-3-30 — 3 gates with 30° bend per gate at z=10m."
+
+start_pos: [0.0, 0.0, 10.0]
+
+gates:
+# G0: 8m along heading 0°
+- position: [8.0, 0.0, 10.0]
+  rotation: [0.0, 0.0, 0.0]
+# G1: 8m along heading 30° from G0
+- position: [14.928, 4.0, 10.0]
+  rotation: [30.0, 0.0, 0.0]
+# G2: 8m along heading 60° from G1
+- position: [18.928, 10.928, 10.0]
+  rotation: [60.0, 0.0, 0.0]

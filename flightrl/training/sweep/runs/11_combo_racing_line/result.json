@@ -1,0 +1,21 @@
+{
+  "run_dir": "/home/ssen/flightmare/flightrl/training/sweep/runs/11_combo_racing_line",
+  "total_timesteps": 25000000,
+  "train_seconds": 3958.331199169159,
+  "fps": 6315.792878889826,
+  "ent_coef": 0.05,
+  "learning_rate": 0.0003,
+  "seed": 42,
+  "train_error": null,
+  "final_ep_rew_mean": 15.737670161549467,
+  "final_ep_len_mean": 85.18,
+  "final_ep_max_gate_mean": 6.79,
+  "best_ep_rew_mean": 21.482832068706628,
+  "slope_last_2M": -0.9851352182405962,
+  "eval_completed": 10,
+  "eval_mean_reward": 16.21095793438144,
+  "eval_mean_length": 143.0,
+  "eval_mean_max_gate": 2.0,
+  "eval_max_gate_idx": 2.0,
+  "eval_lap_completed": false
+}
