@@ -1,6 +1,12 @@
 # Autonomous Drone Racing — Project Context
-**Last updated:** 2026-05-01
-**Status:** ✅ Spline-based reward system validated — training with deviation-penalized progress reward
+**Last updated:** 2026-05-04
+**Status:** 🎯 **circle_8 SOLVED — two recipes available.**
+
+**Recipe A (legacy, manually tuned curriculum):** straight_2→straight_3→bent_3_15→bent_3_30→circle_8 with ent compression chain (0.003→0.0003→0.0001→0.00005), ~230M total steps. Final at `saved/curriculum_v2/E_circle_8_v4/best_model.zip` → **10/8 det gates** (full lap, R=131.6, ep_len=392, 20/20).
+
+**Recipe B (new, sweep-derived, 2026-05-04):** Optuna TPE sweep over 11 PPO HPs found `lr=3e-4, ent=0.05, clip=0.3, n_steps=500, n_epochs=10` as the optimal fine-tune from D_bent_3_30. Single 50M run with these HPs at `saved/sweep_stage2_trial26_50M/best_model.zip` → **7/8 det gates** (R=89.66, 10/10 episodes). 3.5× the original v1 baseline (2/8) at the same 50M budget.
+
+Recipe B is much simpler (no curriculum chain past D_bent_3_30) and could plausibly extend to 10/8 with one or two ent-compression iterations on top.
 
 ---
 

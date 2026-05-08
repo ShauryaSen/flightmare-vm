@@ -1,0 +1,28 @@
+# Track: Figure-8 LEFT LOBE mini-track for v13 plateau-break experiment.
+# Drone starts at the figure_8 origin crossover, facing the left lobe entry.
+# Three gates only — G4 (entry), G5 (top-left), G6 (bot-left), G7 (closing).
+#
+# Geometry copied from figure_8.yaml. The G4 gate is the entry to the left
+# lobe (curvature reversal point — from CW right lobe to CCW left lobe).
+# Drone gets full attention on the failing G5→G6 transition.
+#
+# Start: just before G4, heading +y (matches what the drone naturally has
+# coming from G3 in the full figure_8 path).
+
+description: "Figure-8 left-lobe only — 4 gates of the left half + closing crossover."
+
+start_pos: [0.0, 2.0, 3.0]
+
+gates:
+# G4 (top-right of left lobe, entry from origin moving +y)
+- position: [-1.757, 4.243, 3.0]
+  rotation: [135.0, 0.0, 0.0]
+# G5 (top-left of left lobe)
+- position: [-10.243, 4.243, 3.0]
+  rotation: [-135.0, 0.0, 0.0]
+# G6 (bot-left of left lobe)
+- position: [-10.243, -4.243, 3.0]
+  rotation: [-45.0, 0.0, 0.0]
+# G7 (bot-right of left lobe, return to origin)
+- position: [-1.757, -4.243, 3.0]
+  rotation: [45.0, 0.0, 0.0]

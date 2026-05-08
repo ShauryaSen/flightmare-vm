@@ -1,0 +1,53 @@
+# Track: Figure-8 (HIGH + WIDE variant)
+# z=15 AND lobe radius widened from 6 m → 10 m.
+#
+# Why: raising altitude alone (figure_8_high.yaml) addresses the ground-crash
+# failure mode but not the underlying physics. With r=6 m a 0.73 kg quad with
+# T/W~2 has a sustainable turn-speed ceiling around ~7 m/s. The policy
+# transfers from circle_8 (r=18 m, ~20 m/s cruise) and tries to fly the
+# figure_8 at speeds the lobes physically cannot support → altitude collapse
+# in the bank.
+#
+# r=10 m raises the sustainable turn-speed ceiling to ~10 m/s, which is much
+# closer to the policy's learned cruise. Curvature reversal is preserved
+# (lobes still tangent at origin). Use this as fallback if figure_8_high
+# still plateaus.
+#
+# Geometry: lobes centered at (±10, 0), radius 10. Tangent point at origin.
+# Each lobe has 4 gates at phi ∈ {45°, 135°, 225°, 315°} (from lobe center).
+# Right lobe traversed CW; left lobe CCW.
+#
+# Right lobe (center (10,0)):
+#   phi=135°: (10 + 10*cos(135°), 10*sin(135°)) = (2.929, 7.071), CW tangent (sin(135°), -cos(135°)) = (0.707, 0.707), yaw=45°
+#   phi=45°:  (17.071, 7.071), tangent (0.707, -0.707), yaw=-45°
+#   phi=315°: (17.071, -7.071), tangent (-0.707, -0.707), yaw=-135°
+#   phi=225°: (2.929, -7.071), tangent (-0.707, 0.707), yaw=135°
+# Left lobe (center (-10,0)) CCW: tangent (-sin(phi), cos(phi))
+#   phi=45°:  (-2.929, 7.071), tangent (-0.707, 0.707), yaw=135°
+#   phi=135°: (-17.071, 7.071), tangent (-0.707, -0.707), yaw=-135°
+#   phi=225°: (-17.071, -7.071), tangent (0.707, -0.707), yaw=-45°
+#   phi=315°: (-2.929, -7.071), tangent (0.707, 0.707), yaw=45°
+
+description: "Figure-8 HIGH+WIDE — z=15, r=10 m lobes. Physical turn-speed ceiling raised."
+
+start_pos: [0.0, -7.0, 15.0]
+
+gates:
+# Right lobe (CW).
+- position: [2.929, 7.071, 15.0]
+  rotation: [45.0, 0.0, 0.0]
+- position: [17.071, 7.071, 15.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [17.071, -7.071, 15.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [2.929, -7.071, 15.0]
+  rotation: [135.0, 0.0, 0.0]
+# Left lobe (CCW).
+- position: [-2.929, 7.071, 15.0]
+  rotation: [135.0, 0.0, 0.0]
+- position: [-17.071, 7.071, 15.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [-17.071, -7.071, 15.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [-2.929, -7.071, 15.0]
+  rotation: [45.0, 0.0, 0.0]

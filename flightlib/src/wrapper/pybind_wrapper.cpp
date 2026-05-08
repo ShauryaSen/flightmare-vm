@@ -35,6 +35,9 @@ PYBIND11_MODULE(flightgym, m) {
     .def("getObsDim", &VecEnv<QuadrotorEnv>::getObsDim)
     .def("getActDim", &VecEnv<QuadrotorEnv>::getActDim)
     .def("getExtraInfoNames", &VecEnv<QuadrotorEnv>::getExtraInfoNames)
+    .def("applyPerturbedGates", &VecEnv<QuadrotorEnv>::applyPerturbedGates)
+    .def("getGates", &VecEnv<QuadrotorEnv>::getGates)
+    .def("getNumGates", &VecEnv<QuadrotorEnv>::getNumGates)
     .def("__repr__", [](const VecEnv<QuadrotorEnv>& a) {
       return "RPG Drone Racing Environment";
     });

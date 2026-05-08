@@ -48,6 +48,21 @@ class VecEnv {
   void getObs(Ref<MatrixRowMajor<>> obs);
   size_t getEpisodeLength(void);
 
+  // ── Random-track support (Condition C) ──────────────────────────────
+  // Mutate gates of a single sub-env. CONTRACT: caller must invoke this
+  // immediately after that env's reset (e.g. when done[i]==True surfaces
+  // to Python — the auto-reset has already fired, and the env's
+  // quad_state_.p is at the freshly-sampled init pose). See
+  // QuadrotorEnv::applyPerturbedGates for the per-env contract details.
+  bool applyPerturbedGates(int env_id,
+                           const Ref<const MatrixRowMajor<>> &positions,
+                           const Ref<const Vector<>> &yaws_rad);
+
+  // Round-trip introspection only (used by smoke_pybind to verify the
+  // gate-mutation path before training).
+  bool getGates(int env_id, Ref<MatrixRowMajor<>> positions);
+  int getNumGates(int env_id);
+
   // - auxiliary functions
   void isTerminalState(Ref<BoolVector<>> terminal_state);
   void testStep(Ref<MatrixRowMajor<>> act, Ref<MatrixRowMajor<>> obs,

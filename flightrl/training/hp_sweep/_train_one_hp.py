@@ -203,6 +203,24 @@ def main():
         model.vf_coef = float(hp.get("vf_coef", 0.5))
         model.max_grad_norm = float(hp.get("max_grad_norm", 0.5))
         model.n_epochs = int(hp.get("n_epochs", 10))
+        # Override rollout size + reallocate buffer so sampled n_steps
+        # actually takes effect on the warm-started model. Without this,
+        # n_steps stays at whatever value the loaded model was trained with.
+        # net_arch and activation_fn are baked into the network architecture
+        # at PPO.load() time and CANNOT be changed — sampled values are
+        # ignored for warm-started trials (documented in the report).
+        from stable_baselines3.common.buffers import RolloutBuffer
+        model.n_steps = n_steps
+        model.batch_size = batch_size
+        model.rollout_buffer = RolloutBuffer(
+            n_steps,
+            model.observation_space,
+            model.action_space,
+            device=model.device,
+            gamma=model.gamma,
+            gae_lambda=model.gae_lambda,
+            n_envs=model.n_envs,
+        )
     else:
         model = PPO(
             "MlpPolicy", env,
@@ -230,9 +248,17 @@ def main():
 
     train_error = None
     try:
+        # Always reset_num_timesteps=True. SB3 treats total_timesteps as an
+        # absolute cap when reset_num_timesteps=False, so warm-started trials
+        # would only train (total_timesteps - warm_start_steps) effective
+        # steps — which can be near zero. Resetting gives the trial the full
+        # intended budget. The optimizer state from the warm-start is still
+        # preserved (PPO.load loads the optimizer); only the step counter
+        # and LR/anneal schedules restart, which is what we want for a
+        # fine-tune trial.
         model.learn(total_timesteps=args.total_timesteps, callback=cb,
                     progress_bar=False,
-                    reset_num_timesteps=not bool(args.load_model))
+                    reset_num_timesteps=True)
     except Exception as e:
         train_error = repr(e)
         print(f"[trial] ERROR during learn(): {train_error}", flush=True)

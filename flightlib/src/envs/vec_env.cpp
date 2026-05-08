@@ -202,6 +202,34 @@ void VecEnv<EnvBase>::curriculumUpdate(void) {
   for (int i = 0; i < num_envs_; i++) envs_[i]->curriculumUpdate();
 }
 
+template<typename EnvBase>
+bool VecEnv<EnvBase>::applyPerturbedGates(
+    int env_id, const Ref<const MatrixRowMajor<>> &positions,
+    const Ref<const Vector<>> &yaws_rad) {
+  if (env_id < 0 || env_id >= num_envs_) {
+    logger_.error("applyPerturbedGates: env_id out of range");
+    return false;
+  }
+  envs_[env_id]->applyPerturbedGates(positions, yaws_rad);
+  return true;
+}
+
+template<typename EnvBase>
+bool VecEnv<EnvBase>::getGates(int env_id, Ref<MatrixRowMajor<>> positions) {
+  if (env_id < 0 || env_id >= num_envs_) {
+    logger_.error("getGates: env_id out of range");
+    return false;
+  }
+  envs_[env_id]->getGates(positions);
+  return true;
+}
+
+template<typename EnvBase>
+int VecEnv<EnvBase>::getNumGates(int env_id) {
+  if (env_id < 0 || env_id >= num_envs_) return 0;
+  return envs_[env_id]->getNumGates();
+}
+
 // template<typename EnvBase>
 // std::ostream& operator<<(std::ostream& os, const VecEnv<EnvBase>& env) {
 //   os.precision(3);

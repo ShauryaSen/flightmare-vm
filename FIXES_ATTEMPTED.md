@@ -479,3 +479,116 @@ python gate_racing_iros.py --train 1 \
 **Expected effect:** Hitting the success criteria for at least bent_3_30 (full lap in ≥16/20) and ideally pushing through to circle_8. The training reward trajectory at the prior cutoff (still rising at iteration 27) suggests there's still optimization headroom. If reward genuinely plateaus mid-run, that becomes the documented true failure rung — but only after a real budget.
 
 **Outcome:** _pending — first extension run launched._
+
+---
+
+## 2026-05-03 — Experiment N: Strict IROS21 replication on circle_8 with distributed init
+
+**Hypothesis:** Re-baseline the project against a paper-faithful configuration on the circle_8 track to anchor downstream work. After the long curriculum + IL/BC detour, we want a clean reference point that uses (a) all three "key ingredients" from the paper — including distributed initialization (Phase 1 hover-spawn across all spline segments, Phase 2 trajectory-buffer replays once `mean_gates_per_ep > 0.6` and the snapshot buffer is warm), and (b) only paper Eq.4 reward terms (`r_progress + a·r_safety − b·‖ω‖²`) with all custom shaping (`act_coeff`, `gate_bonus`, `survival_bonus`, `crash_penalty`, `floor_penalty`) zeroed. Track choice: circle_8 (18m radius, 8 gates, 45° between gates, z=3m) — the curriculum's gentlest sustained-turn case and the canonical "circular track" in this repo.
+
+**Files changed (this session, no recompile):**
+- `flightlib/configs/quadrotor_env.yaml` — `track_loader.py apply circle_8` cycled `start_pos` to `[18.0, -4.0, 3.0]` and `gates` to the 8-gate 18m circle; flipped `rl.distributed_init: false → true` with comment pointing to paper L247-261.
+
+**Reward / dynamics block confirmed paper-strict (already at this state, no change):** `act_coeff = gate_bonus = survival_bonus = crash_penalty = 0`, `body_rate_coeff = 0.0005` with 5M-step anneal (paper L140), `safety_coeff = 0` (disabled per repo convention until base policy works), `deviation_penalty_coeff = 0` (the per-step quadratic dev penalty from Bug H is off — paper has no such term), `spline_deviation_ratio = 0.5` (our spline-progress lateral term — necessary generalization for curved tracks, kept at the original tuned value rather than the 1.5 from Bug H), `mass = 0.73`, `inertia = [0.003, 0.003, 0.005]`, `kappa = 0.01` (all paper experiments.tex L44).
+
+**Expected effect:** A clean 25M-step anchor run we can compare future ablations and shaping experiments against. With distributed init on, Phase 1 should spawn across all 8 segments uniformly so the policy sees the full circular geometry from step 1; Phase 2 should engage once `mean_gates_per_ep` exceeds 0.6 (i.e. average ≈1 gate per ep on an 8-gate track) and the snapshot buffer fills past 100 — at that point realistic high-velocity replays from prior trajectories take over from hover spawns. The body-rate penalty fully decays by 5M steps. Success criterion: deterministic eval lap ≥6/8 gates from start_pos (with `random_reset=False`).
+
+**Outcome:** ⚠️ Partial. Run completed in 39 min wall (25.05M steps, 200 envs × 750 n_steps, ~10.6K fps after warmup). Training `ep_rew_mean` climbed monotonically: -14.2 (iter 1) → +50.2 (iter 166); `ep_len_mean` 47 → 503; `explained_variance` settled at 0.92. Saved to `saved/strict_iros21_circle_8/{best,final}_model.zip` + `vec_normalize.pkl`.
+
+Deterministic eval from `start_pos` (20 episodes, `random_reset=False`): **2.00 ± 0.00 gates passed**, mean R=27.1, ep_len=220 (4.4 s). All 20 episodes are bit-identical — policy reliably clears G0 and G1 and crashes on the approach to G2. Below the 6/8 success criterion.
+
+**Interpretation:** The training `ep_rew_mean=+50` was inflated by Phase-2 traj-buffer replays — many of those rollouts start mid-track on already-learned segments and accumulate progress reward there. True full-track-from-start performance is 2/8. The gap is *not* a bug; it's the well-known mismatch between distributed-init training reward and deterministic-eval reward (already documented in Bug I, 2026-05-01).
+
+**What this baseline establishes:** Paper-strict reward + paper-strict dynamics + distributed init alone is sufficient to learn G0 + G1 on circle_8 in 25M steps but is not sufficient to learn the full 8-gate loop. Any ablation or reward-shaping experiment going forward should beat (or at minimum match) this 2/8 anchor under matched eval protocol.
+
+**Open follow-ups:**
+1. Visualize the G2 crash (`visualize_policy.py --model saved/strict_iros21_circle_8/best_model.zip --vecnorm saved/strict_iros21_circle_8/vec_normalize.pkl -n 5 --animate`) to characterize the failure mode (overshoot vs altitude loss vs yaw-lag).
+2. Verify Phase-2 actually engaged during training (grep log for the env's `Switching to Phase 2` message; the curriculum log notes it can fail to trigger when `mean_gates_per_ep` stays under threshold).
+3. Decide whether to keep this as the strict anchor and start ablations, or extend to 50M+ steps to test whether 25M is just under-trained for this configuration.
+
+---
+
+## 2026-05-03 — Bug O: gate_bonus reintroduction to break figure_8 5/8 plateau
+
+**Hypothesis:** Figure_8 deterministic eval has plateaued at 5/8 gates across SEVEN training runs (v1 through v7) and a 6-trial PPO HP sweep. Drone reliably clears the right lobe + 1 crossover gate then crashes between G4 and G5 of the left lobe. With paper-strict reward (`r_progress + r_deviation − b·‖ω‖²`, no gate_bonus, no crash_penalty), there is no step-function signal at gate boundaries — the drone gets approximately the same reward for "skim past G4 then crash" as for "actually fly through G5". A small `gate_bonus = 5.0` per pass creates a discrete reward that only the policy that *actually transitions through gates* can collect.
+
+**Files changed:**
+- `flightlib/configs/quadrotor_env.yaml:97` — `gate_bonus: 0.0 → 5.0`. Comment now documents the deviation from paper-strict reward.
+
+**Expected effect:** Resuming from F_figure_8_v7_final/best_model.zip (5/8, R=49.27 deterministic), the per-episode bonus from passing 5 gates is now +25 (vs +0 before). Passing all 8 = +40 bonus, ~52% larger than the current top R. This creates a strong gradient pushing the policy to commit to G5+. If the drone discovers the G4→G5 path even stochastically, the bonus magnitude rewards repeating it. ent_coef stays at 0.001 (low — the policy already knows the right lobe; we want commitment to a discovered new path, not random exploration).
+
+**Outcome:** ✅ Partial. v8 (30M paper-strict + 17M with gate_bonus=5) cracked the deterministic plateau from 5/8 → 6/8. v9 (+25M, same recipe) and v10 (gate_bonus bumped 5→10, +30M) both held at 6/8. Bigger bonus alone doesn't unlock G6/G7 — drone reliably reaches G5 then ground-crashes during the bank to G6 (banking turn → altitude loss).
+
+---
+
+## 2026-05-03 — Bug P: Flip distributed_init back ON for figure_8 v12
+
+**Hypothesis:** Figure_8 6/8 plateau is data-starved at the failing region. With `distributed_init=false`, the drone only experiences G5→G6→G7 if it survives the first 5 gates (~5% of training samples cover the failing segment). Flipping `distributed_init=true` activates the C++ env's two-phase init: Phase 1 spawns at hover across all 8 segments uniformly (12.5% of samples per segment), Phase 2 replays successful trajectory snapshots from buffered rollouts once mean gates/ep > 0.6 (already true at 6/8 = 6 gates/ep). Drone gets dramatically more training signal at G5→G6 and G6→G7, where the failure mode lives.
+
+**Files changed:**
+- `flightlib/configs/quadrotor_env.yaml:105` — `distributed_init: false → true`. Comment notes this is the v12 figure_8 change.
+
+**Expected effect:** v12 fine-tune from F_figure_8_v10_bonus10 best (6/8) with lr=1e-4 ent=0.005. Early episodes: stoch ep_rew_mean will drop (drone now spawns at random hover and must fly to next gate from rest — out-of-distribution for the start_pos-trained policy). Within ~5M steps Phase 2 should engage (mean_gates_per_ep already > 0.6) and start replaying successful trajectories. Late training: the policy should generalize to "make the next gate from any spline location," which directly attacks the G5/G6/G7 deficit. Risk: VecNormalize stats were built on start_pos-only obs; the wider Phase 1 distribution will shift them — could destabilize for a few hundred K steps.
+
+**Outcome:** _pending — v12 launching._
+
+
+
+
+---
+
+## 2026-05-04 — Bug Q: Lift figure_8 to z=15 + tighten gate_width to break 6/8 plateau
+
+**Hypothesis:** The figure_8 6/8 plateau (resistant to ent_coef sweep, gate_bonus bump, mini-track, distributed init, fresh-start, HP sweep — see OVERNIGHT_PROGRESS.md) is a *physics ceiling*, not a representation problem. Two stacked causes:
+1. **Vertical buffer too small.** Track is at z=3, ground termination at z=0.02 (`quadrotor_env.cpp:430`). Every figure_8 failure GIF ends `_ground_crash`: the drone descends through the bank to G6 and hits the floor before recovery. Circle_8 at z=15 succeeded with 12 m of buffer.
+2. **gate_width=5 lets the policy fly chords, not arcs.** Gate openings 5×5 m are wide enough that the drone can clip the corner between G5 and G6 on the lobe instead of flying the full arc. Tightening to 3 m forces actual arc flight.
+
+Translating the entire track up 12 m doesn't disturb the obs distribution: gate observations are gate-relative spherical in body frame (`quadrotor_env.cpp:204-227`), no absolute z. So a v10 policy trained at z=3 should transfer to z=15 cleanly — only failure-mode changes (loses ground-crash dominance).
+
+**Files changed:**
+- `flightlib/configs/tracks/figure_8_high.yaml` — new track variant: same r=6 m geometry, all gates and start_pos lifted to z=15.
+- `flightlib/configs/tracks/figure_8_high_wide.yaml` — fallback variant: z=15 + r=10 m lobes (raises sustainable turn-speed ceiling from ~7 m/s to ~10 m/s). Hold in reserve if `figure_8_high` plateaus.
+- `flightlib/configs/quadrotor_env.yaml:101` — `gate_width: 5 → 3`.
+
+**Run:** `F_figure_8_high_v1`, 30M steps from `F_figure_8_v10_bonus10/best_model.zip` + vec_normalize, ent_coef=0.005, gate_bonus=10 (kept).
+
+**Expected effect:** v10 policy + altitude buffer should clear 6/8 within first 5–10M steps if the hypothesis is right. New failure mode should NOT be ground crash; if it still is, the lobe radius is the binding constraint and we move to `figure_8_high_wide`. If the new failure is mid-air loss-of-control during the bank, it's a control-authority problem and we move to wide lobes anyway.
+
+**Outcome:** _pending — F_figure_8_high_v1 launching._
+
+---
+
+## 2026-05-04 — Bug Z: Set up Optuna PPO HP sweep on circle_8 (paper-strict)
+
+**Hypothesis (research-question, not bug-fix):** The circle_8 v4 winning recipe (10/8 deterministic) was found by manually compressing `ent_coef` along the v2→v3→v4 chain (0.003→0.0001→0.00005). HPs other than ent_coef were never systematically explored. An Optuna TPE sweep over the 11-dim PPO HP space (lr, n_steps, n_epochs, gamma, gae_lambda, clip_range, ent_coef, vf_coef, max_grad_norm, net_arch, activation_fn) warm-started from `B_straight_3/best_model.zip` should either (a) discover a config that beats v4's 10/8, or (b) confirm v4's recipe is near-optimal for this transition.
+
+**Files changed:**
+- `flightlib/configs/quadrotor_env.yaml` — `gate_bonus: 10.0 → 0.0` (paper-strict; figure_8 carry-over reverted). Track applied = `circle_8` via `python track_loader.py apply circle_8`.
+- Installed `optuna 4.5.0` into the `flightmare` conda env (`pip install optuna`).
+- (No code changes to `hp_sweep_optuna.py` / `_train_one_hp.py` — the existing scaffolding already supports `--load-model` warm-start.)
+
+**Expected effect:** Stage 1 (8M-step trials, ~25 trials over ~5h, warm-started from straight_3) produces a ranked leaderboard of HP configs by composite score `1000*max_gate_idx + mean_reward`. TPE samples → MedianPruner kills bad trials early. Best config differentiates clearly from worst (gate range 0/8 to ~8/8 expected). Stage 2 (next session): re-train top-1 at 50–100M for confirmation.
+
+**Outcome:** _pending — Stage 1 launching._
+
+---
+
+## 2026-05-04 — Bug Z OUTCOME: Optuna PPO HP sweep on circle_8 — VALIDATED
+
+**Outcome:** ✅ **Methodology validated. HP sweep found HPs that 3.5× the manual baseline.**
+
+**Stage 1** (Optuna TPE sweep, 30 trials × 3M steps from D_bent_3_30):
+- 11 trials hit gates≥1; 3 trials hit gates=2.
+- TPE converged on `lr=3e-4, ent=0.05, clip=0.3, n_steps=500, n_epochs=10` (winning region).
+- Best trial #26: 2/8 det gates, R=18.41, score=2018.4.
+
+**Stage 2** (50M confirmation from D_bent_3_30 with trial 26 HPs):
+- Final stochastic: ep_rew=342, ep_len=1492, gate_mean=7.00 (saturation at 7 gates per episode).
+- **Det eval: 7/8 gates, 10/10 episodes, R=89.66.** Versus original E_circle_8 v1 (same warm-start, same 50M, ent=0.003): 2/8 gates, R=24.82.
+- **3.5× improvement from a single HP sweep.** Sweep methodology validated.
+
+**Side discoveries documented in FIXES_ATTEMPTED for posterity:**
+- VM has only 1.9 GB RAM; n_steps=1500 + n_epochs=20 OOM-kills (rc=-9). Constrained search space to n_steps≤1000, n_epochs≤15.
+- straight_3 → circle_8 is too big a jump for HP sweep at 3M steps (no signal differentiation, all gates=0). D_bent_3_30 is the right warm-start (curve-capable but pre-circle).
+- `_train_one_hp.py` had two bugs: (1) `reset_num_timesteps=False` capped trial budget (FIXED → True always); (2) `n_steps`/`batch_size` not overridden after PPO.load (FIXED via `RolloutBuffer` reallocation).
+- `net_arch` and `activation_fn` are baked at PPO.load() time and CANNOT change for warm-started trials. Sampled values are recorded but ignored. Documented limitation.

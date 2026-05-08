@@ -97,6 +97,21 @@ class QuadrotorEnv final : public EnvBase {
   // - public set functions
   bool loadParam(const YAML::Node &cfg);
 
+  // Replace gates_ in-place with new absolute positions and yaw angles
+  // (radians; pitch=roll=0). Recomputes gate normals/frames, rebuilds the
+  // track spline, and resets s_prev_ at quad_state_.p so progress accounting
+  // stays continuous on the next step.
+  // CONTRACT: must be called immediately AFTER an env reset (i.e. when the
+  // drone is at a known starting state). Calling mid-episode will silently
+  // corrupt the next step's progress reward delta.
+  void applyPerturbedGates(const Ref<const MatrixRowMajor<>> &positions,
+                           const Ref<const Vector<>> &yaws_rad);
+
+  // Return current gate positions in row-major (num_gates, 3). For round-trip
+  // testing of applyPerturbedGates — not used in the training loop.
+  void getGates(Ref<MatrixRowMajor<>> positions) const;
+  inline int getNumGates() const { return num_gates_; }
+
   // - public get functions
   bool getObs(Ref<Vector<>> obs) override;
   bool getAct(Ref<Vector<>> act) const;

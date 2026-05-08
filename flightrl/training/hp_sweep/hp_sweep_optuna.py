@@ -34,8 +34,11 @@ def sample_hyperparameters(trial: optuna.Trial) -> dict:
     """Sample a hyperparameter configuration. Search space matches param_sweep.md."""
     learning_rate = trial.suggest_categorical(
         "learning_rate", [3e-5, 1e-4, 3e-4, 1e-3])
-    n_steps = trial.suggest_categorical("n_steps", [500, 750, 1000, 1500])
-    n_epochs = trial.suggest_categorical("n_epochs", [5, 10, 15, 20])
+    # n_steps=1500 and n_epochs=20 dropped — they OOM-kill on the 1.9GB-RAM
+    # VM (gradient memory blows up at full-batch 300K samples × 20 epochs).
+    # Trial 0 of the original sweep died at rc=-9 after 30 min in this regime.
+    n_steps = trial.suggest_categorical("n_steps", [500, 750, 1000])
+    n_epochs = trial.suggest_categorical("n_epochs", [5, 10, 15])
     gamma = trial.suggest_float("gamma", 0.95, 0.999)
     gae_lambda = trial.suggest_float("gae_lambda", 0.9, 1.0)
     clip_range = trial.suggest_categorical("clip_range", [0.1, 0.2, 0.3])

@@ -1,0 +1,41 @@
+# Track: Figure-8 (WIDE variant)
+# z=3 (unchanged from figure_8.yaml), but lobe radius widened 6 m → 10 m.
+#
+# Why: v10 plateaus at 6/8 because it can't execute the G5→G6 bank without
+# altitude collapse. With r=6 m at the speeds the policy has learned
+# (~10 m/s), centripetal accel demand is ~17 m/s² — roughly the entire
+# residual thrust budget after gravity, leaving no margin to hold altitude.
+# At r=10 m, demand drops to ~10 m/s²: comfortably feasible.
+#
+# (We tried lifting altitude to z=15 in figure_8_high.yaml first — that broke
+# v10 transfer entirely (6/8 → 0/8) for reasons not fully understood. The
+# pure-altitude attack appears to perturb the policy in some non-obvious
+# nonlinear way despite the gate-relative obs. Keep this variant at z=3.)
+#
+# Geometry: lobes centered at (±10, 0), radius 10. Tangent at origin.
+# Each lobe has 4 gates at phi ∈ {45°, 135°, 225°, 315°} from lobe center.
+# Right lobe CW; left lobe CCW.
+
+description: "Figure-8 WIDE — z=3, r=10 m lobes. Raises sustainable turn-speed ceiling."
+
+start_pos: [0.0, -4.0, 3.0]   # MATCHES original figure_8.yaml exactly so v10 transfer isn't broken by start-state shift. Drone flies ~10 m to G0 (was ~8 m).
+
+gates:
+# Right lobe (CW from origin moving +y).
+- position: [2.929, 7.071, 3.0]
+  rotation: [45.0, 0.0, 0.0]
+- position: [17.071, 7.071, 3.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [17.071, -7.071, 3.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [2.929, -7.071, 3.0]
+  rotation: [135.0, 0.0, 0.0]
+# Left lobe (CCW from origin moving +y).
+- position: [-2.929, 7.071, 3.0]
+  rotation: [135.0, 0.0, 0.0]
+- position: [-17.071, 7.071, 3.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [-17.071, -7.071, 3.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [-2.929, -7.071, 3.0]
+  rotation: [45.0, 0.0, 0.0]

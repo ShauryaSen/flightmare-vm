@@ -1,0 +1,38 @@
+# Track: Figure-8 (HIGH altitude variant)
+# Same geometry as figure_8.yaml but raised to z=15 (matches circle_8).
+#
+# Why: the original figure_8 at z=3 leaves only 3 m of vertical buffer to the
+# ground-crash terminator (z≤0.02). Every figure_8 failure GIF ends in
+# `_ground_crash`: the drone descends through the bank and hits the floor before
+# it can recover. Raising to z=15 gives ~12 m of buffer (same as circle_8).
+#
+# Also: the policy we transfer from (circle_8 v4) was trained at z=15, so its
+# VecNormalize stats and altitude prior match this track exactly.
+#
+# Geometry (unchanged from figure_8.yaml):
+#   Right lobe: center (6,0), CW.  Left lobe: center (-6,0), CCW.
+#   Curvature reverses at the crossover.
+
+description: "Figure-8 HIGH — z=15 variant for altitude-buffer experiment."
+
+start_pos: [0.0, -4.0, 15.0]
+
+gates:
+# Right lobe (CW from origin moving +y).
+- position: [1.757, 4.243, 15.0]
+  rotation: [45.0, 0.0, 0.0]
+- position: [10.243, 4.243, 15.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [10.243, -4.243, 15.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [1.757, -4.243, 15.0]
+  rotation: [135.0, 0.0, 0.0]
+# Left lobe (CCW from origin moving +y).
+- position: [-1.757, 4.243, 15.0]
+  rotation: [135.0, 0.0, 0.0]
+- position: [-10.243, 4.243, 15.0]
+  rotation: [-135.0, 0.0, 0.0]
+- position: [-10.243, -4.243, 15.0]
+  rotation: [-45.0, 0.0, 0.0]
+- position: [-1.757, -4.243, 15.0]
+  rotation: [45.0, 0.0, 0.0]

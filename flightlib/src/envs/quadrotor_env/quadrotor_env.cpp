@@ -1,4 +1,5 @@
 #include "flightlib/envs/quadrotor_env/quadrotor_env.hpp"
+#include "flightlib/objects/static_gate.hpp"
 
 namespace flightlib {
 
@@ -561,6 +562,65 @@ bool QuadrotorEnv::loadParam(const YAML::Node &cfg) {
   return true;
 }
 
+void QuadrotorEnv::applyPerturbedGates(const Ref<const MatrixRowMajor<>> &positions,
+                                       const Ref<const Vector<>> &yaws_rad) {
+  // Sanity: gate count must match (random-track sampler only perturbs the
+  // baseline circle_8, so num_gates_ stays 8).
+  if (positions.rows() != num_gates_ || positions.cols() != 3 ||
+      yaws_rad.rows() != num_gates_) {
+    logger_.error("applyPerturbedGates dimension mismatch: got " +
+                  std::to_string(positions.rows()) + "x" +
+                  std::to_string(positions.cols()) + " pos, " +
+                  std::to_string(yaws_rad.rows()) + " yaws; expected " +
+                  std::to_string(num_gates_));
+    return;
+  }
+
+  for (int i = 0; i < num_gates_; ++i) {
+    Vector<3> p;
+    p << Scalar(positions(i, 0)), Scalar(positions(i, 1)), Scalar(positions(i, 2));
+    gates_[i] = p;
+
+    // Rebuild rotation from yaw only (pitch=roll=0). Matches the
+    // Rz(yaw)*Ry(0)*Rx(0) branch of loadParam — collapses to a pure yaw
+    // rotation matrix.
+    Scalar yaw = Scalar(yaws_rad(i));
+    Scalar cy = std::cos(yaw), sy = std::sin(yaw);
+    Matrix<3, 3> R_gate = Matrix<3, 3>::Identity();
+    R_gate(0,0) =  cy;  R_gate(0,1) = -sy;  R_gate(0,2) = Scalar(0);
+    R_gate(1,0) =  sy;  R_gate(1,1) =  cy;  R_gate(1,2) = Scalar(0);
+    R_gate(2,0) =  Scalar(0); R_gate(2,1) = Scalar(0); R_gate(2,2) = Scalar(1);
+
+    Vector<3> normal = R_gate.col(0);
+    normal.normalize();
+    gate_normals_[i] = normal;
+    gate_frames_[i]  = R_gate;
+  }
+
+  // Rebuild spline against the new control points.
+  buildTrackSpline();
+
+  // Recompute s_prev_ at the current drone position so the next step's
+  // progress delta is well-defined relative to the new spline. The caller
+  // is required to invoke this right after a reset, so quad_state_.p is
+  // start_pos_ (or the chosen distributed-init pose).
+  if (num_gates_ > 0) {
+    s_prev_ = spline_progress(quad_state_.p, current_gate_idx_);
+  }
+}
+
+void QuadrotorEnv::getGates(Ref<MatrixRowMajor<>> positions) const {
+  if (positions.rows() != num_gates_ || positions.cols() != 3) {
+    logger_.error("getGates dimension mismatch");
+    return;
+  }
+  for (int i = 0; i < num_gates_; ++i) {
+    positions(i, 0) = gates_[i](0);
+    positions(i, 1) = gates_[i](1);
+    positions(i, 2) = gates_[i](2);
+  }
+}
+
 bool QuadrotorEnv::getAct(Ref<Vector<>> act) const {
   if (cmd_.t >= 0.0 && quad_act_.allFinite()) { act = quad_act_; return true; }
   return false;
@@ -758,6 +818,37 @@ void QuadrotorEnv::updateExtraInfo() {
 
 void QuadrotorEnv::addObjectsToUnity(std::shared_ptr<UnityBridge> bridge) {
   bridge->addQuadrotor(quadrotor_ptr_);
+  // Publish each race gate to Unity so it can render the racing circuit.
+  // Stock Flightmare scenes don't include gates; the bridge places "rpg_gate"
+  // prefab instances at the YAML-loaded poses.
+  // Build each gate's orientation from scratch. After Ros2Unity (Y↔Z swap),
+  // env's local +Y becomes Unity's local +Z (the prefab's "forward"). So we
+  // construct an env-frame rotation that puts:
+  //   env local +Y = gate normal (the fly-through / spline tangent)
+  //   env local +Z = world up
+  //   env local +X = +Y × +Z (right-hand)
+  // → Unity gets prefab local +Z aligned with gate_normal, +Y aligned with up.
+  for (size_t i = 0; i < gates_.size(); ++i) {
+    auto gate = std::make_shared<StaticGate>("gate_" + std::to_string(i));
+    gate->setPosition(gates_[i]);
+
+    Vector<3> fwd = gate_normals_[i];
+    Vector<3> up_env = Vector<3>::UnitZ();
+    Vector<3> right_env = fwd.cross(up_env);
+    if (right_env.norm() < Scalar(1e-6)) right_env = Vector<3>::UnitX();
+    right_env.normalize();
+    up_env = right_env.cross(fwd).normalized();
+
+    Matrix<3, 3> R_manual;
+    R_manual.col(0) = right_env;  // env local +X
+    R_manual.col(1) = fwd;        // env local +Y → Unity +Z (prefab forward)
+    R_manual.col(2) = up_env;     // env local +Z → Unity +Y (prefab up)
+
+    Quaternion q(R_manual);
+    gate->setQuaternion(q);
+    gate->setSize(Vector<3>(1.5, 1.5, 1.5));  // 1.5× default; scale uniformly
+    bridge->addStaticObject(gate);
+  }
 }
 
 std::ostream &operator<<(std::ostream &os, const QuadrotorEnv &quad_env) {

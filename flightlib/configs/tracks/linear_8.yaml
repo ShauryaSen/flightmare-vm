@@ -1,0 +1,27 @@
+# Track: Linear-8
+# Baseline straight-line track for the Condition C random-track curriculum
+# (IROS21 §III.D Random Track Curriculum, "small deviations from a straight line").
+# At complexity c=0 the TrackGenerator emits exactly this layout;
+# at c>0 each gate's relative pose is perturbed in the previous gate's frame.
+
+description: "Linear-8 — 8 gates spaced 6 m along +x at z=5, yaw=0. Curriculum c=0 baseline."
+
+start_pos: [0.0, 0.0, 5.0]
+
+gates:
+- position: [6.0,  0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [12.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [18.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [24.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [30.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [36.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [42.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
+- position: [48.0, 0.0, 5.0]
+  rotation: [0.0, 0.0, 0.0]
