@@ -9,6 +9,10 @@ __pycache__/
 # ── C++ Build artifacts ──
 flightlib/build/
 _build/
+flightlib/externals/*/CMakeFiles/
+flightlib/externals/*-build/
+flightlib/externals/*-bin/
+flightlib/externals/*-download/
 
 # ── IDE ──
 .vscode/

@@ -36,6 +36,7 @@ from stable_baselines3.common.vec_env import VecNormalize
 import flightgym
 from sb3_vec_env import FlightmareSB3VecEnv
 
+from track_generator import TrackGenerator
 
 
 def main():
@@ -43,18 +44,49 @@ def main():
     p.add_argument("--model", required=True)
     p.add_argument("--vecnorm", required=True)
     p.add_argument("--track", required=True,
-                   help="Track name (must already be applied to quadrotor_env.yaml).")
+                   help="Track name (must already be applied to quadrotor_env.yaml). "
+                        "Use 'linear_8' as the carrier when running --procedural-c.")
     p.add_argument("--perturb-sigma", type=float, default=0.0,
-                   help="If >0, apply a fixed Gaussian perturbation N(0, sigma^2) "
-                        "to each baseline gate (robustness eval; per §7).")
+                   help="If >0, apply a fixed Gaussian N(0, sigma^2) per-gate "
+                        "position perturbation to the loaded baseline (robustness "
+                        "eval; mutually exclusive with --procedural-c).")
+    p.add_argument("--procedural-c", type=float, default=None,
+                   help="If set, overlay a TrackGenerator draw at this complexity "
+                        "(open held-out per §7). Requires --track linear_8.")
+    p.add_argument("--procedural-seed", type=int, default=None,
+                   help="Seed for TrackGenerator; reused across all condition "
+                        "checkpoints so per-episode bootstrap CIs are valid.")
     p.add_argument("--eval-seed", type=int, default=12345)
     p.add_argument("--n-episodes", type=int, default=20)
     p.add_argument("--max-steps", type=int, default=1500)
     p.add_argument("--out", required=True, help="Output JSON path.")
     args = p.parse_args()
 
+    if args.perturb_sigma > 0.0 and args.procedural_c is not None:
+        raise SystemExit("--perturb-sigma and --procedural-c are mutually exclusive")
+
     raw = FlightmareSB3VecEnv(flightgym.QuadrotorEnv_v1())
     raw.seed(args.eval_seed)
+
+    if args.procedural_c is not None:
+        # Open held-out per §7: every parallel env runs the SAME procedural
+        # track. The procedural seed is independent of eval_seed (which only
+        # affects env init), so the same track replays across all 9
+        # checkpoints.
+        if args.track != "linear_8":
+            print(f"[eval_one] WARN: --procedural-c set but track={args.track} "
+                  f"(expected linear_8 baseline). Using current loaded gates "
+                  f"as the start-pos source.", flush=True)
+        proc_seed = args.procedural_seed if args.procedural_seed is not None \
+            else args.eval_seed
+        gen = TrackGenerator.from_baseline_yaml(
+            TRACKS_DIR / "linear_8.yaml", seed=proc_seed)
+        pos, yaw = gen.sample(args.procedural_c)
+        n_envs = raw.num_envs
+        for i in range(n_envs):
+            raw.wrapper.applyPerturbedGates(i,
+                                            pos.astype(np.float32),
+                                            yaw.astype(np.float32))
 
     if args.perturb_sigma > 0.0:
         # §7 robustness eval: apply isotropic N(0, sigma^2) per-gate position
@@ -117,6 +149,8 @@ def main():
         "vecnorm": args.vecnorm,
         "track": args.track,
         "perturb_sigma": args.perturb_sigma,
+        "procedural_c": args.procedural_c,
+        "procedural_seed": args.procedural_seed,
         "eval_seed": args.eval_seed,
         "n_episodes": len(completed_rewards),
         "ep_rewards": completed_rewards,
@@ -129,7 +163,9 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     with open(args.out, "w") as f:
         json.dump(out, f, indent=2)
-    print(f"[eval_one] {args.track}  sigma={args.perturb_sigma}  "
+    tag = (f"proc_c={args.procedural_c}" if args.procedural_c is not None
+           else f"sigma={args.perturb_sigma}")
+    print(f"[eval_one] {args.track}  {tag}  "
           f"mean_gates={out['mean_gates']:.2f}  ({out['n_episodes']} eps)")
     raw.close()
 

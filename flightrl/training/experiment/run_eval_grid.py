@@ -22,11 +22,20 @@ THIS_DIR = Path(__file__).resolve().parent
 TRAINING_DIR = THIS_DIR.parent
 TRACK_LOADER = TRAINING_DIR / "track_loader.py"
 
-# Eval-grid layout per §7. circle_8 is target; held-out set excludes the
-# rungs Condition B trains on.
+# Eval-grid layout per §7. circle_8 is the target track for A/B; the
+# named held-out is fair for A/B (closed loops they didn't train on); the
+# procedural held-out is fair for C (the open-track distribution it was
+# trained on, but at unseen complexities).
 TARGET_TRACK = "circle_8"
 HELDOUT_TRACKS = ["oval_8", "helix_8", "vertical_3", "figure_8"]
 ROBUST_SIGMA = 0.5
+
+# Procedural held-out: 5 fixed seeds × 3 complexities. Same set evaluated
+# across every checkpoint so per-episode bootstrap CIs are valid.
+PROCEDURAL_COMPLEXITIES = [0.7, 0.85, 1.0]
+PROCEDURAL_SEEDS = [12345, 12346, 12347, 12348, 12349]
+PROCEDURAL_CARRIER = "linear_8"  # baseline YAML applied; gates are overlaid
+
 EVAL_SEED = 12345  # fixed per §5 so per-episode bootstrap is valid across conditions
 
 
@@ -67,7 +76,8 @@ def apply_track(track: str):
 
 
 def run_one(model: str, vecnorm: str, track: str, perturb_sigma: float,
-            out_path: Path, n_episodes: int):
+            out_path: Path, n_episodes: int,
+            procedural_c=None, procedural_seed=None):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     cmd = [
         sys.executable, str(THIS_DIR / "_eval_one.py"),
@@ -79,6 +89,9 @@ def run_one(model: str, vecnorm: str, track: str, perturb_sigma: float,
         "--n-episodes", str(n_episodes),
         "--out", str(out_path),
     ]
+    if procedural_c is not None:
+        cmd += ["--procedural-c", str(procedural_c),
+                "--procedural-seed", str(procedural_seed)]
     subprocess.run(cmd, check=True, cwd=str(TRAINING_DIR))
 
 
@@ -107,6 +120,14 @@ def main():
     p.add_argument("--target", default=TARGET_TRACK)
     p.add_argument("--heldout", nargs="*", default=HELDOUT_TRACKS)
     p.add_argument("--robust-sigma", type=float, default=ROBUST_SIGMA)
+    p.add_argument("--procedural-cs", nargs="*", type=float,
+                   default=PROCEDURAL_COMPLEXITIES,
+                   help="Complexity values for procedural held-out evals.")
+    p.add_argument("--procedural-seeds", nargs="*", type=int,
+                   default=PROCEDURAL_SEEDS,
+                   help="Track seeds for procedural held-out evals.")
+    p.add_argument("--skip-procedural", action="store_true")
+    p.add_argument("--skip-named", action="store_true")
     args = p.parse_args()
 
     runs_dir = Path(args.runs_dir).resolve()
@@ -118,13 +139,18 @@ def main():
         print(f"No checkpoints under {runs_dir}", file=sys.stderr)
         sys.exit(2)
 
-    # Build the (track, sigma) work list.
-    pairs = [(args.target, 0.0)]
-    pairs += [(t, 0.0) for t in args.heldout]
-    pairs += [(t, args.robust_sigma) for t in args.heldout]
+    # ── A) Named-track held-out (target + closed-loop held-out + perturbed). ──
+    pairs = []
+    if not args.skip_named:
+        pairs.append((args.target, 0.0))
+        pairs += [(t, 0.0) for t in args.heldout]
+        pairs += [(t, args.robust_sigma) for t in args.heldout]
 
     summary = {"checkpoints": [c["label"] for c in checkpoints],
-               "tracks": pairs,
+               "named_pairs": pairs,
+               "procedural_pairs": [(c, s) for c in args.procedural_cs
+                                    for s in args.procedural_seeds]
+                                   if not args.skip_procedural else [],
                "results": {}}
 
     # Order outer loop by track (one apply_track call per track) for speed.
@@ -133,7 +159,7 @@ def main():
         by_track.setdefault(track, []).append(sigma)
 
     for track, sigmas in by_track.items():
-        print(f"=== applying track {track} ===")
+        print(f"=== applying named track {track} ===")
         apply_track(track)
         for ck in checkpoints:
             for sigma in sigmas:
@@ -148,6 +174,25 @@ def main():
                 run_one(ck["model"], ck["vecnorm"], track, sigma,
                         out_file, args.n_episodes)
 
+    # ── B) Procedural held-out (open tracks at fixed seeds × c). ──
+    if not args.skip_procedural:
+        print(f"=== applying carrier track {PROCEDURAL_CARRIER} for procedural held-out ===")
+        apply_track(PROCEDURAL_CARRIER)
+        for ck in checkpoints:
+            for c in args.procedural_cs:
+                for s in args.procedural_seeds:
+                    tag = f"proc_c{c:.2f}_s{s}"
+                    pair_dir = out_dir / ck["label"] / "procedural"
+                    pair_dir.mkdir(parents=True, exist_ok=True)
+                    out_file = pair_dir / f"{tag}.json"
+                    if out_file.exists():
+                        print(f"  SKIP {ck['label']} {tag} (exists)")
+                        continue
+                    print(f"  eval {ck['label']} {tag}")
+                    run_one(ck["model"], ck["vecnorm"], PROCEDURAL_CARRIER,
+                            0.0, out_file, args.n_episodes,
+                            procedural_c=c, procedural_seed=s)
+
     # Aggregate per-condition (A/B/C) per-pair into bootstrap CIs.
     by_cond = {"A": [], "B": [], "C": []}
     for ck in checkpoints:
@@ -157,6 +202,8 @@ def main():
         by_cond[cond].append(ck)
 
     rollup = {}
+
+    # Named-track rollup.
     for track, sigmas in by_track.items():
         for sigma in sigmas:
             key = f"{track}_sigma{sigma:.2f}"
@@ -173,11 +220,30 @@ def main():
                     continue
                 m, lo, hi = bootstrap_ci(ep_gates)
                 rollup[key][cond] = {
-                    "n_seeds": len(cks),
-                    "n_episodes": len(ep_gates),
-                    "mean_gates": m,
-                    "ci95_lo": lo,
-                    "ci95_hi": hi,
+                    "n_seeds": len(cks), "n_episodes": len(ep_gates),
+                    "mean_gates": m, "ci95_lo": lo, "ci95_hi": hi,
+                }
+
+    # Procedural rollup: pool all (seeds × per-episode-rollouts) per c.
+    if not args.skip_procedural:
+        for c in args.procedural_cs:
+            key = f"procedural_c{c:.2f}"
+            rollup[key] = {}
+            for cond, cks in by_cond.items():
+                ep_gates = []
+                for ck in cks:
+                    for s in args.procedural_seeds:
+                        f = out_dir / ck["label"] / "procedural" / f"proc_c{c:.2f}_s{s}.json"
+                        if not f.exists():
+                            continue
+                        d = json.loads(f.read_text())
+                        ep_gates.extend(d["ep_max_gates"])
+                if not ep_gates:
+                    continue
+                m, lo, hi = bootstrap_ci(ep_gates)
+                rollup[key][cond] = {
+                    "n_seeds": len(cks), "n_episodes": len(ep_gates),
+                    "mean_gates": m, "ci95_lo": lo, "ci95_hi": hi,
                 }
 
     summary["rollup"] = rollup

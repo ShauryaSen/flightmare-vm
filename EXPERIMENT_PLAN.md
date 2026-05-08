@@ -1,9 +1,19 @@
 # Experiment Plan — Bootstrapping RL for Drone Racing: A Three-Way Comparison
 
-**Status:** Draft v3 · 2026-05-07
+**Status:** Draft v4 · 2026-05-08
 **Project:** Robot Learning class project / paper
 **Scope:** ~9–13 hr of GCP compute (~$5–15 of $50 class credit) plus local dev/smoke time
 
+> **Changes from v3 (2026-05-08):**
+> - **Condition C rewritten to faithfully mirror IROS21 §III.D.** The σ-perturbed-circle_8 design was wrong: it started the curriculum at the target's own complexity. Replaced with a **gate-primitive track generator** that concatenates per-gate primitives `G_{i+1} = f(G_i, Δp, ΔR)` in the previous gate's local frame, and an **adaptive-complexity controller** keyed on the **completion ratio** (per-episode "passed all gates?" signal). Curriculum starts at `c=0` (literal straight line, `linear_8.yaml`) and walks toward `c=1` (full procedural variability) only as the policy demonstrates competence.
+> - **Held-out set for Condition C** changed to **procedurally-generated tracks at fixed seeds at `c ∈ {0.7, 0.85, 1.0}`** instead of the named closed-loop tracks (oval_8, helix_8, vertical_3, figure_8). The named tracks remain the held-out for A/B; reporting both makes the distribution-gap story honest. (Conditions A/B never see open procedural tracks during training; Condition C never sees closed loops during training. The split mirrors that asymmetry.)
+> - **`vec_env.yaml: render: no`** — disables the Unity ZMQ bridge so multiple flightgym processes can coexist (smoke + viz + eval grid). Required for the eval grid's sequential subprocess pattern.
+> - **20M-step Condition C pilot completed** on local UTM (`runs/C_seed99/`, 32 min wall). Curriculum mechanic confirmed working but the policy stalls at modest complexity:
+>   - 5M: c reached 0.15 (mean 5.8/8 gates)
+>   - 20M: peak c=0.30, final c=0.20 (mean 5.99/8 gates, 68 of 2557 controller updates triggered bumps).
+>   - End-policy viz at 20M: **8/8 gates at c≤0.2** (training distribution); **1-3/8 at c=0.5**; **1-5/8 at c=1.0**. Policy is dialed in for the complexity it actually trained on but does not generalize beyond it.
+>   - **Implication for the cloud campaign:** projecting linearly, the full 100M budget is unlikely to push c above ~0.4. The §3 wording about "full complexity" is tempered to "the complexity reached during training" and the paper will report the actual c-trajectory rather than a single-number "completion at c=1.0" claim. This is the honest IROS21-style finding — the curriculum tracks the agent's competence ceiling rather than guaranteeing it reaches the maximum.
+>
 > **Changes from v2 (2026-05-07):**
 > - **Compute moves to GCP `c3-standard-8` on-demand** (8 dedicated vCPU x86, 32 GB RAM). Local UTM ARM64 VM relegated to dev/smoke only. Full §13 added with provisioning, build, snapshot, run, and cost-discipline workflow. Projected total spend ~$5–15 of the $50 class credit.
 > - Throughput projection updated: **40K FPS conservative** (vs 10K on local), so the equal-budget 100M × 9 runs collapse to ~6.3 hr of training instead of ~25 hr. Whole campaign now fits in a single working day.
@@ -58,23 +68,31 @@ This ladder was chosen because each transition is **empirically demonstrated to 
 
 **Critical change from prior practice:** use **identical hyperparameters across all rungs** (no per-rung `ent_coef` adjustments, no exploration kicks, no LR schedules). The current `saved/curriculum_v2/` results were produced with iterative per-rung tuning — that data is *not* usable for the paper (see §10).
 
-### Condition C — Automated Random-Track Curriculum (IROS21)
+### Condition C — Automated Random-Track Curriculum (IROS21 §III.D, faithful)
 
-Implements Song et al. IROS21 §IV "Random Track Curriculum": same locked hyperparameters; track topology family parameterized by per-gate position offsets `δ ∈ N(0, σ²·I)` and per-gate yaw offsets, sampled afresh every N episodes.
+Concatenates **gate primitives** in the previous gate's local frame, scales per-step Δp/ΔR by a single **complexity scalar `c ∈ [0, 1]`**, and walks `c` up/down based on the policy's **completion ratio** (fraction of recent episodes where the drone passed every gate). Starts at `c=0` (literal straight-line `linear_8.yaml`); the agent's own competence drives how fast complexity ramps. Same locked hyperparameters from §4, distributed initialization enabled.
 
-**Concrete sampler spec:**
-- Base topology: `circle_8` (8 gates, 18 m radius, z=15) — matches target.
-- Per-episode resample: at every env reset, sample a fresh track from the current σ. Each of the 100 parallel envs gets an independent draw, so the policy sees ~100 distinct tracks per rollout.
-- Per-gate perturbation: `pos_perturbation = N(0, σ²·I)` applied to each gate's `(x, y, z)`. Gate yaw perturbed by `N(0, (10°·σ/σ_max)²)`. Gate sequence ordering and topology (closed loop) preserved.
-- Spline rebuilt per draw using existing `buildTrackSpline()` (start_pos held fixed; gate normals derived from perturbed yaw).
+**Track generator** (`flightrl/training/experiment/track_generator.py`):
+- 8 gates, baseline `linear_8.yaml`: `start_pos=(0, 0, 5)`, gates marching forward at 6 m intervals along +x at z=5, all yaw=0. C++ env loads this at `__init__`; subsequent gates are mutated in-process via `applyPerturbedGates`.
+- For each gate `i`, sample a primitive in the *previous gate's local frame*:
+  - Δyaw_i ∼ U(−c · 35°, c · 35°)
+  - Δp_local_i = (forward=6.0 m, lateral ∼ U(−c·4 m, c·4 m), vertical ∼ U(−c·1.5 m, c·1.5 m))
+  - World offset = R_z(yaw_{i−1}) · Δp_local_i; cumulative pose advances; world yaw += Δyaw_i.
+- At `c=0` the generator collapses to the literal `linear_8` layout (verified by `track_generator.py`'s self-test). At `c=1` per-step Δp / Δyaw reach the configured maxima — visualized in `flightrl/training/experiment/track_previews_random/_overview_grid.png`.
+- Each of the 200 parallel envs draws an independent fresh track at every episode reset. Spline rebuilt per draw via the public `applyPerturbedGates` C++ method (calls private `buildTrackSpline()` and resets `s_prev_` against the new spline at `quad_state_.p`).
 
-**Adaptive σ controller:** start at σ=0.2 m. Maintain a rolling window of the last 50 episode-final `gate_idx` values across all envs. Compute pass-rate as `mean(gate_idx) / num_gates`. Every 100 episodes:
-- If pass-rate > 0.7: σ ← min(σ × 1.25, σ_max=1.5 m)
-- If pass-rate < 0.3: σ ← max(σ × 0.8, σ_min=0.05 m)
+**Adaptive complexity controller** (`adaptive_complexity.py`):
+- `c_init = 0.0`. Additive steps (so `c=0` isn't a multiplicative trap).
+- Rolling 100-episode window of cumulative `gates_passed` per episode (does NOT wrap, so `gates_passed ≥ num_gates` ⇔ "completed at least one full track").
+- Every 100 completed episodes, compute `completion_ratio = mean(gates_passed ≥ num_gates)`:
+  - `> 0.70`: `c += 0.05`, capped at 1.0
+  - `< 0.30`: `c −= 0.05`, floored at 0.0
+  - otherwise: hold.
+- TB metric: `complexity` and `completion_ratio` logged at every 500K-step snapshot.
 
-Distributed initialization enabled (same as IROS21 paper).
+**Note on signal choice:** the paper says "crash ratio computed across all parallel environments". Our env disabled gate-collision termination (Bug 8 in `FIXES_ATTEMPTED.md`), so we use the natural inverse: **completion ratio** of full-track laps. Failure modes (ground crash / OOB / timeout before completing) all collapse to "incomplete episode," which is the right thing for the controller.
 
-**Pre-validation:** run a 5M-step pilot with one seed before launching the full 100M × 3 seeds, to confirm σ adapts in the right direction and learning is non-degenerate. (Risk register §9.)
+**Pre-validation:** 5M-step pilot already run on local UTM (`runs/C_seed99/`, seed=99 with `--c-update-every 50`). Curriculum mechanic confirmed: 67 c-bumps over 5M steps, settled at `c=0.15`, 8/8 gates on the baseline at end. A 20M-step pilot is being run to forecast the c-trajectory at full budget. If the 20M pilot doesn't break c=0.5, the campaign's §3 "full complexity" framing is tempered to "complexity reached during training" in the paper.
 
 ---
 
@@ -196,15 +214,20 @@ This is dramatically less than the existing `curriculum_v2/` work (~230M+ steps)
 
 ### Held-out tracks (generalization)
 
-Picked to **not** appear in Condition B's ladder (straight_2, straight_3, bent_3_15, bent_3_30, bent_3_45, circle_8):
+Two held-out *families* are reported separately because Conditions A/B and Condition C train on substantially different track topologies (closed-loop circle_8 vs. open procedural). A single held-out set would be unfairly weighted against one of them; reporting both makes the distribution-gap story honest.
 
+**Named-track held-out** (closed loops; primarily a fair test for A/B, an out-of-distribution test for C):
 - `oval_8` — closed loop with varying curvature; analogous topology to circle_8 but distinct geometry
 - `helix_8` — adds altitude variation (vertical axis stress test)
 - `vertical_3` — short track with strong altitude component (vertical generalization)
+- `figure_8` — in-plane direction-reversal stress test (always held out — never run as a Condition B stretch rung in this version)
 
-If the stretch rung G (figure_8) was *not* run for Condition B, also include `figure_8` as a held-out for the in-plane direction-reversal stress test. (If figure_8 *was* run as a B rung, drop it from held-out.)
+**Procedural held-out** (open tracks from `TrackGenerator` at fixed seeds; primarily a fair test for C, an out-of-distribution test for A/B):
+- 5 fixed seeds × 3 complexities `c ∈ {0.7, 0.85, 1.0}` = 15 procedural eval pairs.
+- Each pair = 20 deterministic episodes on the *exact same procedural track* across all 9 condition checkpoints (so per-episode bootstrap CIs are valid). Track generation seed `12345 + complexity_idx*100 + draw_idx` so every condition sees the identical 15 tracks.
+- Implemented in `_eval_one.py --procedural-c <c> --procedural-seed <s>`: applies `linear_8` baseline to the YAML, then uses `applyPerturbedGates` to inject the procedurally-generated track on every parallel env before the deterministic rollout. `set_random_reset(False)` and `EVAL_SEED=12345` reused across conditions.
 
-Same eval protocol (20 deterministic eps, `set_random_reset(False)`). Reported as mean across the held-out set.
+Same eval protocol (20 deterministic eps, `set_random_reset(False)`). Reported as the mean across each set, with bootstrap CIs over the per-episode pairings (§5).
 
 ### Robustness
 Apply gate perturbation `N(0, 0.5²)` m to each held-out track. 20 episodes per track. Reports robustness gap (zero-shot generalization gates − robustness gates).
