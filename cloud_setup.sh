@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# One-shot bootstrap for a fresh GCP c3-standard-8 Ubuntu 22.04 box.
-# Idempotent: re-running on a partially-built box is safe.
+# One-shot bootstrap for a fresh GCP c3-standard-8 box (Ubuntu 22.04 LTS or
+# Debian 12 bookworm; both tested). Idempotent: re-running on a partially-
+# built box is safe.
 #
 # Usage on the GCP box:
 #   git clone <repo-url> ~/flightmare
@@ -13,13 +14,26 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo "[cloud_setup] repo root: ${REPO_ROOT}"
 
 # 1) System deps (mirrors flightlib's CMake requirements + conda toolchain).
+#    libzmqpp-dev was dropped from Debian 12 bookworm — if apt can't find it
+#    (e.g. on bookworm), build zmqpp from source against libzmq3-dev.
 if ! command -v cmake >/dev/null; then
     echo "[cloud_setup] installing apt dependencies"
     sudo apt-get update -y
     sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         build-essential cmake git ca-certificates curl \
-        libeigen3-dev libzmqpp-dev libopencv-dev libyaml-cpp-dev \
+        libeigen3-dev libopencv-dev libyaml-cpp-dev \
+        libzmq3-dev \
         tmux htop
+
+    # Try the apt-packaged zmqpp first (Ubuntu 22.04 / Debian 11); fall back
+    # to a from-source build on Debian 12 bookworm.
+    if ! sudo apt-get install -y --no-install-recommends libzmqpp-dev 2>/dev/null; then
+        echo "[cloud_setup] libzmqpp-dev not in apt — building from source"
+        if [[ ! -d /tmp/zmqpp ]]; then
+            git clone --depth 1 https://github.com/zeromq/zmqpp.git /tmp/zmqpp
+        fi
+        (cd /tmp/zmqpp && make -j"$(nproc)" && sudo make install && sudo ldconfig)
+    fi
 fi
 
 # 2) Miniforge.
