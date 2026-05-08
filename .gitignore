@@ -56,3 +56,21 @@ backups/
 _posts
 _site
 .claude/settings.local.json
+
+# ── HP sweep run artifacts (large, generated per-trial) ──
+flightrl/training/hp_sweep/runs/
+flightrl/training/hp_sweep/logs/
+flightrl/training/hp_sweep/plots/
+flightrl/training/hp_sweep/optuna_study.db
+flightrl/training/hp_sweep/best_hparams.json
+
+# ── Experiment run artifacts ──
+flightrl/training/experiment/runs/
+flightrl/training/experiment/smoke/runs/
+
+# ── Tensorboard event files ──
+**/events.out.tfevents.*
+*.tfevents.*
+
+# ── Local config backups ──
+*.viz_backup
