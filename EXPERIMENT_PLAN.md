@@ -1,6 +1,6 @@
 # Experiment Plan — Bootstrapping RL for Drone Racing: A Three-Way Comparison
 
-**Status:** Draft v4 · 2026-05-08
+**Status:** Draft v4 · 2026-05-08 · See [STATUS.md](STATUS.md) for execution progress.
 **Project:** Robot Learning class project / paper
 **Scope:** ~9–13 hr of GCP compute (~$5–15 of $50 class credit) plus local dev/smoke time
 
