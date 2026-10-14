@@ -78,3 +78,10 @@ flightrl/training/experiment/smoke/runs/
 
 # ── Local config backups ──
 *.viz_backup
+
+# ── Run artifacts ──
+runs/
+logs/
+*.log
+*.pid
+*.yaml.used

@@ -1,8 +1,0 @@
-{
-  "name": "12_combo_strict_racer",
-  "rl": {
-    "gate_bonus": 5.0,
-    "deviation_penalty_coeff": 0.1
-  },
-  "ppo": {}
-}

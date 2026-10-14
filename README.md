@@ -15,6 +15,23 @@ This is a fork of [uzh-rpg/flightmare](https://github.com/uzh-rpg/flightmare) fo
 1. **Faithful replication** of the IROS 2021 autonomous drone racing baseline (Song et al.)
 ---
 
+## Results
+
+![PPO policy flying the circle_8 track](flightrl/training/flight_animation.gif)
+
+**circle_8 solved (8/8 gates, deterministic full lap) by two recipes:**
+
+- **Recipe A, hand-tuned curriculum.** `straight_2 → straight_3 → bent_3_15 → bent_3_30 → circle_8`, each rung fine-tuned from the previous rung's best model with an entropy-compression chain (0.003 → 0.0003 → 0.0001 → 0.00005), about 230M steps total. See [notes/track-curriculum-plan.md](notes/track-curriculum-plan.md) and [notes/curriculum-log.md](notes/curriculum-log.md).
+- **Recipe B, sweep-derived.** An Optuna TPE sweep over 11 PPO hyperparameters found `lr=3e-4, ent=0.05, clip=0.3, n_steps=500, n_epochs=10` as the best fine-tune from `bent_3_30`; a single 50M-step run with those settings clears the track with no further curriculum. See [notes/sweep-results.md](notes/sweep-results.md).
+
+The curriculum study also located where the from-scratch policy breaks: it learns transient bends of 15° per gate but plateaus at 2/3 gates once bends reach 30°. Sustained turning is what the curriculum has to teach.
+
+Track previews for every rung are in `flightrl/training/track_previews/`; procedurally generated tracks at increasing complexity are in `flightrl/training/experiment/track_previews_random/`.
+
+![Procedural tracks at increasing complexity](flightrl/training/experiment/track_previews_random/_overview_grid.png)
+
+---
+
 ## Project Structure
 
 ```
@@ -39,7 +56,8 @@ flightmare/
 │   ├── reward_probe.py                     # Reward signal diagnostic tool
 │   └── verify_reward.py                    # Reward calculation verification
 │
-├── IROS21_tex_source/                      # Original paper LaTeX source (reference)
+├── notes/                                  # Experiment plan, curriculum log, sweep results, debugging log
+├── docs/unity-demo.md                      # Live Unity render of a trained policy
 ├── CONTRIBUTING.md                         # How to contribute
 └── README.md                               # This file
 ```
@@ -57,8 +75,8 @@ flightmare/
 ### 1. Clone & Setup Conda Environment
 
 ```bash
-git clone https://github.com/CornellPhysicalIntelligence/flightmare.git
-cd flightmare
+git clone https://github.com/ShauryaSen/flightmare-vm.git
+cd flightmare-vm
 export FLIGHTMARE_PATH=$(pwd)
 
 conda create -n flightmare python=3.8 -y
@@ -146,7 +164,6 @@ r(t) = progress + gate_bonus + survival - control_penalty - body_rate_penalty
 - [ ] **P10:** Gate collision detection + termination
 - [ ] **P11:** Body rate penalty annealing schedule
 
-See [`iros21_replication_gaps.md`](iros21_replication_gaps.md) for detailed descriptions of each item.
 
 ---
 

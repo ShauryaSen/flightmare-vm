@@ -1,7 +1,0 @@
-{
-  "name": "02_harsh_crash",
-  "rl": {
-    "crash_penalty": -20.0
-  },
-  "ppo": {}
-}

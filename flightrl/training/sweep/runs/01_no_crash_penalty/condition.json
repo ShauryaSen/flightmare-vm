@@ -1,7 +1,0 @@
-{
-  "name": "01_no_crash_penalty",
-  "rl": {
-    "crash_penalty": 0.0
-  },
-  "ppo": {}
-}

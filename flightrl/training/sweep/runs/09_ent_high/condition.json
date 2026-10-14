@@ -1,7 +1,0 @@
-{
-  "name": "09_ent_high",
-  "rl": {},
-  "ppo": {
-    "ent_coef": 0.05
-  }
-}

@@ -1,8 +1,0 @@
-{
-  "name": "10_combo_positive_only",
-  "rl": {
-    "crash_penalty": 0.0,
-    "gate_bonus": 5.0
-  },
-  "ppo": {}
-}

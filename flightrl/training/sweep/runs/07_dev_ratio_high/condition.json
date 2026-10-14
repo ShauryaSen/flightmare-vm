@@ -1,7 +1,0 @@
-{
-  "name": "07_dev_ratio_high",
-  "rl": {
-    "spline_deviation_ratio": 3.0
-  },
-  "ppo": {}
-}

@@ -4,8 +4,8 @@
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/CornellPhysicalIntelligence/flightmare.git
-cd flightmare
+git clone https://github.com/ShauryaSen/flightmare-vm.git
+cd flightmare-vm
 export FLIGHTMARE_PATH=$(pwd)
 echo "export FLIGHTMARE_PATH=$(pwd)" >> ~/.bashrc
 ```

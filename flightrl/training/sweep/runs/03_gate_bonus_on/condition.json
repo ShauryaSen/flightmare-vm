@@ -1,7 +1,0 @@
-{
-  "name": "03_gate_bonus_on",
-  "rl": {
-    "gate_bonus": 5.0
-  },
-  "ppo": {}
-}
