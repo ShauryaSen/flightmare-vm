@@ -10,14 +10,17 @@
 
 ## Overview
 
-This is a fork of [uzh-rpg/flightmare](https://github.com/uzh-rpg/flightmare) focused on:
+This is a fork of [uzh-rpg/flightmare](https://github.com/uzh-rpg/flightmare) that faithfully replicates the IROS 2021 autonomous drone racing baseline (Song et al.), then uses it to study curriculum learning for PPO drone racing.
 
-1. **Faithful replication** of the IROS 2021 autonomous drone racing baseline (Song et al.)
 ---
 
 ## Results
 
-![PPO policy flying the circle_8 track](flightrl/training/flight_animation.gif)
+![Trained PPO policy flying through the gates, rendered in Flightmare's Unity scene](docs/unity_flight.gif)
+
+**[Project video (YouTube)](https://youtu.be/M0WbGkZZK00)**: a short walkthrough of the replication, the curriculum experiment, and the results.
+
+This codebase was then used as the testbed for an **automated curriculum learning** experiment: under a matched 100M-step budget and locked PPO hyperparameters, it compares no curriculum, a hand-designed track ladder, and an adaptive procedural curriculum that raises track complexity as the policy improves. The hand-designed ladder generalizes best to closed-loop named tracks, the adaptive curriculum generalizes best to unseen procedural tracks, and no curriculum reaches 4/8 gates on the target but generalizes to nothing. Plan and analysis are in [notes/experiment-plan.md](notes/experiment-plan.md).
 
 **circle_8 solved (8/8 gates, deterministic full lap) by two recipes:**
 
@@ -142,38 +145,6 @@ Per-motor normalized thrusts `[T1, T2, T3, T4]`.
 ```
 r(t) = progress + gate_bonus + survival - control_penalty - body_rate_penalty
 ```
-
----
-
-## Current Status
-
-### ✅ Implemented (Paper Priorities 1-5)
-
-- [x] Full 26-dim observation space (vel, accel, rotmat, ω, 2 spherical gates)
-- [x] Spherical gate representation with gate normal angle
-- [x] 2 future gates in observation
-- [x] VecNormalize z-score observation normalization
-- [x] Distributed initialization (hover → trajectory replay)
-
-### 🔲 TODO (Priorities 6-11)
-
-- [ ] **P6:** Distance-dependent terminal penalty for gate collisions
-- [ ] **P7:** Network architecture tuning (Tanh output, `[256,256]`)
-- [ ] **P8:** Gaussian safety reward near gate edges
-- [ ] **P9:** Remove survival bonus (conflicts with time-optimal objective)
-- [ ] **P10:** Gate collision detection + termination
-- [ ] **P11:** Body rate penalty annealing schedule
-
-
----
-
-## Critical Bugs Found & Fixed
-
-| Bug | Impact | Fix |
-|-----|--------|-----|
-| `-Ofast` breaks `std::isfinite(NaN)` | Physics never advances | Volatile-based NaN checks in `command.cpp` |
-| Pybind11 `Ref<MatrixRowMajor>` row expression creates temporary | Obs writes discarded | Exposed `getObs()` in pybind, called after `step()` |
-| `EvalCallback` hangs on C++ VecEnv | Training stalls | Custom `TrainingRewardCallback` |
 
 ---
 
