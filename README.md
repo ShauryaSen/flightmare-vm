@@ -18,12 +18,6 @@ This is a fork of [uzh-rpg/flightmare](https://github.com/uzh-rpg/flightmare) th
 
 ![Trained PPO policy flying through the gates, rendered in Flightmare's Unity scene](docs/unity_flight.gif)
 
-**[Project video (YouTube)](https://youtu.be/M0WbGkZZK00)**: a short walkthrough of the replication, the curriculum experiment, and the results.
-
-This codebase was then used as the testbed for an **automated curriculum learning** experiment: under a matched 100M-step budget and locked PPO hyperparameters, it compares no curriculum, a hand-designed track ladder, and an adaptive procedural curriculum that raises track complexity as the policy improves. The hand-designed ladder generalizes best to closed-loop named tracks, the adaptive curriculum generalizes best to unseen procedural tracks, and no curriculum reaches 4/8 gates on the target but generalizes to nothing. Plan and analysis are in [notes/experiment-plan.md](notes/experiment-plan.md).
-
-**circle_8 solved (8/8 gates, deterministic full lap) by two recipes:**
-
 - **Recipe A, hand-tuned curriculum.** `straight_2 → straight_3 → bent_3_15 → bent_3_30 → circle_8`, each rung fine-tuned from the previous rung's best model with an entropy-compression chain (0.003 → 0.0003 → 0.0001 → 0.00005), about 230M steps total. See [notes/track-curriculum-plan.md](notes/track-curriculum-plan.md) and [notes/curriculum-log.md](notes/curriculum-log.md).
 - **Recipe B, sweep-derived.** An Optuna TPE sweep over 11 PPO hyperparameters found `lr=3e-4, ent=0.05, clip=0.3, n_steps=500, n_epochs=10` as the best fine-tune from `bent_3_30`; a single 50M-step run with those settings clears the track with no further curriculum. See [notes/sweep-results.md](notes/sweep-results.md).
 
